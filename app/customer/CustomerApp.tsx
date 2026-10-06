@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import BottomNav, { ChatGlyph, HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph } from "../components/BottomNav";
-import { OtpStep, PermissionStep, PhoneLogin, ProfileSetup, SplashScreen } from "../components/Auth";
+import { OtpStep, PermissionStep, PhoneLogin, ProfileSetup, SplashLink, SplashScreen } from "../components/Auth";
 import HomeScreen from "../components/customer/HomeScreen";
 import { ChooseRidePage, ConfirmPage, LiveRidePage, ParcelPage, SearchPage, TripDonePage } from "../components/customer/BookingScreens";
 import {
@@ -59,6 +59,8 @@ export default function CustomerApp() {
   const { coupons, activeCoupons, settings } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
   const [phone, setPhone] = useState("");
+  /** Login and sign-up share the phone → OTP flow; this only changes the wording and the welcome message. */
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [user, setUser] = useState<Customer>(NO_USER);
   const [tab, setTab] = useState<Tab>("home");
   const [stack, setStack] = useState<Detail[]>([]);
@@ -83,6 +85,7 @@ export default function CustomerApp() {
       const c = await loadCustomer();
       if (!c) { setStage("setup"); return null; }
       if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
+      if (mode === "signup" && !afterSetup) flash(`You already have an account — welcome back, ${c.name.split(" ")[0]}!`);
       setUser(c);
       setRides(await loadCustomerRides(c.id));
       setStage(afterSetup ? "perm" : "app");
@@ -229,9 +232,19 @@ export default function CustomerApp() {
       <div style={{ width: "100%", maxWidth: SHELL_MAX_W, height: "100%", position: "relative", background: "var(--app-bg)", overflow: "hidden", boxShadow: "var(--shadow-float)", display: "flex", flexDirection: "column" }}>
 
         {stage === "splash" && (
-          <SplashScreen tagline="Ride · Reach · Relax" onStart={() => setStage("phone")} />
+          <SplashScreen tagline="Ride · Reach · Relax" cta="Log in" onStart={() => { setMode("login"); setStage("phone"); }}
+            footer={<SplashLink prompt="New to Ridewallah?" cta="Create an account" onClick={() => { setMode("signup"); setStage("phone"); }} />} />
         )}
-        {stage === "phone" && <PhoneLogin title="Welcome to" accent="Ridewallah" onSend={async (p) => {
+        {stage === "phone" && <PhoneLogin
+          {...(mode === "signup" ? {
+            title: "Create your", accent: "Ridewallah account", cta: "Continue",
+            body: "Enter your mobile number to get started. We'll verify it with a one-time password.",
+            switchTo: { prompt: "Already have an account?", cta: "Log in", onClick: () => setMode("login") },
+          } : {
+            title: "Welcome to", accent: "Ridewallah",
+            switchTo: { prompt: "New to Ridewallah?", cta: "Create an account", onClick: () => setMode("signup") },
+          })}
+          onSend={async (p) => {
           const err = await sendOtp(p);
           if (!err) { setPhone(p); setStage("otp"); }
           return err;

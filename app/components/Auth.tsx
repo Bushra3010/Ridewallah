@@ -36,6 +36,16 @@ export function SplashScreen({ tagline, cta = "Get Started", onStart, footer }: 
   );
 }
 
+/** Secondary link under the splash button, e.g. "New to Ridewallah? Create an account". */
+export function SplashLink({ prompt, cta, onClick }: { prompt: string; cta: string; onClick: () => void }) {
+  return (
+    <p style={{ margin: "14px 0 0", textAlign: "center", fontSize: 13.5, color: "rgba(255,255,255,0.75)" }}>
+      {prompt}{" "}
+      <button onClick={onClick} style={{ background: "none", border: "none", padding: 0, color: "white", fontWeight: 700, fontSize: 13.5, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 3 }}>{cta}</button>
+    </p>
+  );
+}
+
 const Shell = ({ children, onBack }: { children: React.ReactNode; onBack?: () => void }) => (
   <div className="fade-up" style={{ position: "absolute", inset: 0, zIndex: 190, background: "var(--app-bg)", display: "flex", flexDirection: "column", overflowY: "auto" }}>
     <div style={{ padding: "18px 16px 0", minHeight: 42 }}>
@@ -54,8 +64,13 @@ const H = ({ title, accent, body }: { title: string; accent?: string; body: stri
   </div>
 );
 
-/** Mobile number → SMS one-time password (Supabase phone auth). `onSend` returns an error message or null. */
-export function PhoneLogin({ title, accent, onSend }: { title: string; accent: string; onSend: (phone: string) => Promise<string | null> }) {
+/** Mobile number → SMS one-time password (Supabase phone auth). `onSend` returns an error message or null.
+ * Used for both logging in and creating an account — `switchTo` flips between the two. */
+export function PhoneLogin({ title, accent, body = "Enter your mobile number. We'll send you a one-time password.", cta = "Get OTP", switchTo, onSend }: {
+  title: string; accent: string; body?: string; cta?: string;
+  switchTo?: { prompt: string; cta: string; onClick: () => void };
+  onSend: (phone: string) => Promise<string | null>;
+}) {
   const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -67,7 +82,7 @@ export function PhoneLogin({ title, accent, onSend }: { title: string; accent: s
   };
   return (
     <Shell>
-      <H title={title} accent={accent} body="Enter your mobile number. We'll send you a one-time password." />
+      <H title={title} accent={accent} body={body} />
       <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) submit(); }} style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
         <div>
           <label style={label} htmlFor="phone">Mobile Number</label>
@@ -79,7 +94,13 @@ export function PhoneLogin({ title, accent, onSend }: { title: string; accent: s
           </div>
           {err && <p role="alert" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--red)" }}>{err}</p>}
         </div>
-        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Sending…" : "Get OTP"}</PrimaryButton>
+        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Sending…" : cta}</PrimaryButton>
+        {switchTo && (
+          <p style={{ margin: 0, textAlign: "center", fontSize: 13.5, color: "var(--ink-soft)" }}>
+            {switchTo.prompt}{" "}
+            <button type="button" onClick={switchTo.onClick} style={{ background: "none", border: "none", padding: 0, color: "var(--blue)", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>{switchTo.cta}</button>
+          </p>
+        )}
         <p style={{ marginTop: "auto", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center", lineHeight: 1.5 }}>
           By continuing you agree to Ridewallah&apos;s Terms of Service and Privacy Policy.
         </p>
