@@ -1,8 +1,16 @@
 import { useId } from "react";
+import Image from "next/image";
 import type { VehicleKind } from "../lib/data";
 
-/* Glossy three-quarter vehicle illustrations (front-left view, soft ground shadow), in the style of
- * ride-hailing fare lists. Real-world colours: black & yellow auto, white cab, blue hatchback, grey SUV. */
+/* Vehicle pictures for fare lists, ride cards and profiles. Photos live in public/vehicles/ (transparent
+ * WebP); a kind without a photo falls back to the drawn three-quarter illustration below. */
+
+const PHOTOS: Partial<Record<VehicleKind, string>> = {
+  bike: "/vehicles/bike.webp",
+  auto: "/vehicles/auto.webp",
+  mini: "/vehicles/mini.webp",
+  sedan: "/vehicles/sedan.webp",
+};
 
 type Car = { body: [string, string]; front: string; trim: string };
 
@@ -19,6 +27,12 @@ function Wheel({ cx, cy, rx, ry, id }: { cx: number; cy: number; rx: number; ry:
 export default function VehicleArt({ kind, size = 56 }: { kind: VehicleKind; size?: number }) {
   const id = useId().replace(/:/g, "");
   const h = Math.round(size * 0.62);
+
+  // Same box as the illustration, so swapping in a photo never shifts a layout.
+  const photo = PHOTOS[kind];
+  if (photo) {
+    return <Image src={photo} alt="" aria-hidden="true" width={size} height={h} style={{ width: size, height: h, objectFit: "contain" }} />;
+  }
 
   const car: Record<"mini" | "sedan" | "suv", Car> = {
     mini: { body: ["var(--gold)", "var(--blue-dark)"], front: "var(--blue-dark)", trim: "#ffffff" },
@@ -48,70 +62,11 @@ export default function VehicleArt({ kind, size = 56 }: { kind: VehicleKind; siz
             <stop offset="1" style={{ stopColor: car[kind].body[1] }} />
           </linearGradient>
         )}
-        <linearGradient id={`${id}-yellow`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#ffdc4a" />
-          <stop offset="1" stopColor="#f0a800" />
-        </linearGradient>
-        <linearGradient id={`${id}-tank`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" style={{ stopColor: "var(--gold)" }} />
-          <stop offset="1" style={{ stopColor: "var(--blue-dark)" }} />
-        </linearGradient>
       </defs>
 
       <ellipse cx="51" cy="54" rx="46" ry="6" fill={`url(#${id}-shadow)`} />
 
-      {kind === "bike" && (
-        <>
-          {/* rear swing arm + exhaust */}
-          <path d="M56 37 L78 46" stroke="#2a303c" strokeWidth="3.2" strokeLinecap="round" />
-          <Wheel cx={78} cy={46} rx={9} ry={10.5} id={id} />
-          <path d="M52 39 L84 34.5 Q87 34.5 87 37 L86.5 38.5 L54 42.5z" fill="#c9d0db" />
-          <path d="M52 39 L84 34.5" stroke="#ffffff" strokeWidth="0.8" opacity="0.8" />
-          {/* engine */}
-          <path d="M40 29 L57 29 L59 38 Q56 42 47 42 L42 40z" fill="#4a5262" />
-          <path d="M44 31 V39 M48 31 V40 M52 31 V40" stroke="#6f7889" strokeWidth="1.2" />
-          {/* front fork + wheel */}
-          <path d="M31 17 L21 46" stroke="#8b94a5" strokeWidth="3" strokeLinecap="round" />
-          <Wheel cx={21} cy={46} rx={9} ry={10.5} id={id} />
-          <path d="M11 40 Q14 33.5 22 33.5 Q28.5 34 30.5 38.5" stroke={`url(#${id}-tank)`} strokeWidth="2.6" strokeLinecap="round" fill="none" />
-          {/* tank, seat, tail */}
-          <path d="M34 25 Q40 16 54 17 L62 21 Q61 28 52 29.5 L38 30z" fill={`url(#${id}-tank)`} />
-          <path d="M40 20 Q46 17.5 53 18" stroke="#ffffff" strokeWidth="1.4" strokeLinecap="round" opacity="0.7" />
-          <path d="M56 20.5 Q67 17 78 20 L78.5 23.5 L58 25z" fill="#1f2430" />
-          <path d="M74 20.5 L88 21.5 Q91 23.5 87.5 26.5 L72 27z" fill={`url(#${id}-tank)`} />
-          <rect x="85" y="22.5" width="4" height="2.2" rx="1" fill="#ff4d4f" />
-          {/* handlebar + headlight */}
-          <path d="M26 15.5 L38 12.5" stroke="#1f2430" strokeWidth="2.6" strokeLinecap="round" />
-          <path d="M25 18 Q24 24 30 25 L35 23 L34 17z" fill={`url(#${id}-tank)`} />
-          <ellipse cx="26.5" cy="21" rx="2.6" ry="3.2" fill="#eaf6ff" stroke="#c9d0db" strokeWidth="0.8" />
-        </>
-      )}
 
-      {kind === "auto" && (
-        <>
-          <Wheel cx={84} cy={46.5} rx={5} ry={7} id={id} />
-          {/* rear tub — black lower body, rounded tail */}
-          <path d="M34 28.5 L87 27 Q93 27.5 92.5 34 L90.5 43 Q89.5 46.5 85 46.5 L34 46.5z" fill="#1c2230" />
-          <path d="M34 40.5 L91 39.5 L90.6 42 L34 43z" fill={`url(#${id}-yellow)`} />
-          {/* open passenger side with bench seat */}
-          <path d="M45 28.6 L84.5 27.4 Q87 27.6 86.6 30.5 L85.6 37.6 L45 38.4z" fill="#0b0f16" />
-          <path d="M60 31.5 Q60 30 62 30 L82.5 29.6 Q84.6 29.8 84.4 32 L84 37.6 L60 38z" fill="#3a4256" />
-          <path d="M61 31 L83 30.6" stroke="#5b6680" strokeWidth="0.8" />
-          {/* driver cab: windscreen + rounded nose */}
-          <path d="M17.5 26 L36 28.4 L36 34.2 L14.5 35.2 Q14.5 29.5 17.5 26z" fill={`url(#${id}-glass)`} />
-          <path d="M19 27 L24 27.6 L18.5 34.6 L15.6 34.8z" fill="#ffffff" opacity="0.22" />
-          <path d="M12 46.5 Q10 40 14 35.2 L36.5 34.2 L36.5 46.5z" fill="#1c2230" />
-          <path d="M12.3 39.6 L36.5 38.8 L36.5 41.2 L12.6 42z" fill={`url(#${id}-yellow)`} />
-          <ellipse cx="15.2" cy="37.2" rx="2.2" ry="1.8" fill="#eaf6ff" stroke="#9aa4b5" strokeWidth="0.6" />
-          <path d="M36.5 28.4 L36.5 46.5" stroke="#0b0f16" strokeWidth="1" />
-          {/* domed canvas canopy */}
-          <path d="M15.5 26.5 Q16.5 9 40 7.2 L76 6.8 Q90.5 7.2 91.5 21 L91.5 27.2 L36 28.6z" fill={`url(#${id}-yellow)`} />
-          <path d="M15.5 26.5 L36 28.6 L91.5 27.2 L91.5 28.8 L36 30.2 L15.5 28z" fill="#1c2230" />
-          <path d="M24 13.5 Q30 9.6 40 9 L76 8.6" stroke="#fff3b0" strokeWidth="1.4" strokeLinecap="round" fill="none" />
-          <Wheel cx={22} cy={48} rx={5.6} ry={7.2} id={id} />
-          <Wheel cx={70} cy={48} rx={6.6} ry={8} id={id} />
-        </>
-      )}
 
       {(kind === "mini" || kind === "sedan" || kind === "suv") && (() => {
         const c = car[kind];

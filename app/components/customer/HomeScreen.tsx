@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, BellIcon, BriefcaseIcon, ChevronRight, ClockIcon, HomeIcon, SearchIcon, ShieldIcon, TargetIcon } from "../icons";
 import { BrandMark, Wordmark } from "../Brand";
@@ -230,7 +231,9 @@ function PromoCarousel({ onOffers, onRide }: { onOffers: () => void; onRide: () 
                 boxShadow: "0 6px 16px rgba(120,190,255,0.40)", display: "inline-flex", alignItems: "center", gap: 6,
               }}>View Offers <ArrowRight s={15} c="var(--blue-dark)" w={2.2} /></button>
             </div>
-            <div style={{ flexShrink: 0, filter: "drop-shadow(0 10px 18px rgba(4,36,107,0.45))" }}><VehicleArt kind="sedan" size={124} /></div>
+            <div style={{ flexShrink: 0, filter: "drop-shadow(0 10px 18px rgba(4,36,107,0.45))" }}>
+              <Image src="/vehicles/bike-lite.webp" alt="" aria-hidden="true" width={124} height={101} style={{ width: 124, height: 101, objectFit: "contain" }} />
+            </div>
           </div>, 0,
         )}
         {slide(
