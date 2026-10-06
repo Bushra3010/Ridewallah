@@ -1,18 +1,22 @@
 import type { Metadata } from "next";
-import AdminApp from "./AdminApp";
+import AdminApp, { AdminLogin } from "./AdminApp";
+import { isAdmin } from "../lib/admin-auth";
+import { getAdminData } from "../lib/admin-data";
 import { getCatalog } from "../lib/catalog";
 import { CatalogProvider } from "../lib/CatalogProvider";
 
 export const metadata: Metadata = { title: "Ridewallah Admin", description: "Manage rides, drivers, customers, pricing and payments." };
 
-// Admins always see the live catalog, including inactive coupons.
+// Admins always see live data, including inactive coupons.
 export const revalidate = 0;
 
 export default async function Page() {
-  const catalog = await getCatalog({ asAdmin: true });
+  // Nothing is loaded with the service-role key until the admin session checks out.
+  if (!(await isAdmin())) return <AdminLogin />;
+  const [catalog, data] = await Promise.all([getCatalog({ asAdmin: true }), getAdminData()]);
   return (
     <CatalogProvider catalog={catalog}>
-      <AdminApp />
+      <AdminApp data={data} />
     </CatalogProvider>
   );
 }

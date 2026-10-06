@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { BrandMark, Wordmark } from "../components/Brand";
 import MapView from "../components/MapView";
 import VehicleArt from "../components/VehicleArt";
@@ -10,10 +11,14 @@ import {
 } from "../components/icons";
 import { Avatar, PrimaryButton, StatusBadge, Toggle, card, field, label } from "../components/ui";
 import {
-  CUSTOMERS, DRIVERS, NON_AC_DISCOUNT, PARCEL_RATE, RIDES, TICKETS, TXNS, WEEK, inr,
-  type Coupon, type Customer, type Driver, type Ride, type Ticket, type Vehicle,
+  NON_AC_DISCOUNT, PARCEL_RATE, WEEK, inr,
+  type Coupon, type Customer, type Driver, type Ride, type Ticket, type Txn, type Vehicle,
 } from "../lib/data";
+import type { AdminData } from "../lib/admin-data";
 import { useCatalog } from "../lib/CatalogProvider";
+import {
+  addTicketNote, createCoupon, login, logout, savePricing, setCouponActive, setCustomerBlocked, setTicketStatus, updateDriver, type Result,
+} from "./actions";
 
 type Section = "dashboard" | "live" | "rides" | "customers" | "drivers" | "pricing" | "coupons" | "payments" | "reports" | "support" | "notify" | "settings";
 
@@ -32,29 +37,29 @@ const NAV: { id: Section; label: string; Icon: (p: { s?: number; c?: string }) =
   { id: "settings", label: "Settings", Icon: GearIcon },
 ];
 
-const AUTH_KEY = "ridewallah:admin";
-const readAdmin = () => { try { return sessionStorage.getItem(AUTH_KEY) === "1"; } catch { return false; } };
-const writeAdmin = (v: boolean) => { try { if (v) sessionStorage.setItem(AUTH_KEY, "1"); else sessionStorage.removeItem(AUTH_KEY); } catch { /* storage blocked */ } };
-
-export default function AdminApp() {
-  const [authed, setAuthed] = useState(false);
+/** Data comes from Supabase via the server page; edits update the screen at once and are saved by server actions. */
+export default function AdminApp({ data }: { data: AdminData }) {
+  const router = useRouter();
   const [section, setSection] = useState<Section>("dashboard");
-  const [drivers, setDrivers] = useState<Driver[]>(DRIVERS);
-  const [customers, setCustomers] = useState<Customer[]>(CUSTOMERS);
+  const [drivers, setDrivers] = useState<Driver[]>(data.drivers);
+  const [customers, setCustomers] = useState<Customer[]>(data.customers);
   const catalog = useCatalog();
   const [vehicles, setVehicles] = useState<Vehicle[]>(catalog.vehicles);
   const [coupons, setCoupons] = useState<Coupon[]>(catalog.coupons);
-  const [tickets, setTickets] = useState<Ticket[]>(TICKETS);
+  const [tickets, setTickets] = useState<Ticket[]>(data.tickets);
+  const { rides, txns } = data;
   const [commission, setCommission] = useState(20);
   const [surge, setSurge] = useState({ on: true, mult: 1.3 });
   const [toast, setToast] = useState<string | null>(null);
 
-  // Stay signed in for this browser tab.
-  useEffect(() => { if (readAdmin()) setAuthed(true); }, []);
-
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2200); };
 
-  if (!authed) return <AdminLogin onLogin={() => { writeAdmin(true); setAuthed(true); }} />;
+  /** Show the change now, save it, and put the old state back if the save fails. */
+  async function save<T>(set: (v: T) => void, prev: T, next: T, action: Promise<Result>, ok: string) {
+    set(next);
+    const { error } = await action;
+    if (error) { set(prev); flash(`Couldn't save — ${error}`); } else flash(ok);
+  }
 
   const pending = drivers.filter((d) => d.kyc === "Pending").length;
   const open = tickets.filter((t) => t.status !== "Resolved").length;
@@ -84,7 +89,7 @@ export default function AdminApp() {
           })}
         </nav>
         <div className="adm-side-foot" style={{ marginTop: "auto", paddingTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-          <button onClick={() => { writeAdmin(false); setAuthed(false); }} style={{ display: "flex", alignItems: "center", gap: 10, border: "none", background: "rgba(255,255,255,0.08)", color: "white", borderRadius: 12, padding: "10px 12px", cursor: "pointer", fontSize: 13.5, fontWeight: 500 }}>
+          <button onClick={async () => { await logout(); router.refresh(); }} style={{ display: "flex", alignItems: "center", gap: 10, border: "none", background: "rgba(255,255,255,0.08)", color: "white", borderRadius: 12, padding: "10px 12px", cursor: "pointer", fontSize: 13.5, fontWeight: 500 }}>
             <LogoutIcon s={18} c="white" /> Log out
           </button>
         </div>
@@ -92,19 +97,26 @@ export default function AdminApp() {
 
       <main className="adm-main">
         <TopBar title={NAV.find((n) => n.id === section)!.label} alerts={pending + open} />
-        {section === "dashboard" && <Dashboard drivers={drivers} pending={pending} open={open} go={setSection} />}
-        {section === "live" && <LiveRides />}
-        {section === "rides" && <RidesSection />}
-        {section === "customers" && <CustomersSection rows={customers} onToggle={(id) => {
-          setCustomers((c) => c.map((x) => (x.id === id ? { ...x, blocked: !x.blocked } : x)));
-          const c = customers.find((x) => x.id === id)!; flash(`${c.name} ${c.blocked ? "unblocked" : "blocked"}`);
+        {section === "dashboard" && <Dashboard rides={rides} drivers={drivers} customers={customers} pending={pending} open={open} go={setSection} />}
+        {section === "live" && <LiveRides rides={rides} />}
+        {section === "rides" && <RidesSection rides={rides} />}
+        {section === "customers" && <CustomersSection rows={customers} rides={rides} onToggle={(id) => {
+          const c = customers.find((x) => x.id === id)!;
+          save(setCustomers, customers, customers.map((x) => (x.id === id ? { ...x, blocked: !x.blocked } : x)),
+            setCustomerBlocked(id, !c.blocked), `${c.name} ${c.blocked ? "unblocked" : "blocked"}`);
         }} />}
-        {section === "drivers" && <DriversSection rows={drivers} onUpdate={(id, p, msg) => { setDrivers((d) => d.map((x) => (x.id === id ? { ...x, ...p } : x))); flash(msg); }} />}
-        {section === "pricing" && <PricingSection vehicles={vehicles} setVehicles={setVehicles} commission={commission} setCommission={setCommission} surge={surge} setSurge={setSurge} onSave={() => flash("Pricing saved — applies to new bookings")} />}
-        {section === "coupons" && <CouponsSection rows={coupons} setRows={setCoupons} flash={flash} />}
-        {section === "payments" && <PaymentsSection />}
-        {section === "reports" && <ReportsSection flash={flash} />}
-        {section === "support" && <SupportSection rows={tickets} setRows={setTickets} flash={flash} />}
+        {section === "drivers" && <DriversSection rows={drivers} onUpdate={(id, p, msg) =>
+          save(setDrivers, drivers, drivers.map((x) => (x.id === id ? { ...x, ...p } : x)), updateDriver(id, p), msg)} />}
+        {section === "pricing" && <PricingSection vehicles={vehicles} setVehicles={setVehicles} commission={commission} setCommission={setCommission} surge={surge} setSurge={setSurge}
+          onSave={() => save(setVehicles, vehicles, vehicles, savePricing(vehicles), "Pricing saved — applies to new bookings")} />}
+        {section === "coupons" && <CouponsSection rows={coupons}
+          onCreate={(c) => save(setCoupons, coupons, [c, ...coupons], createCoupon(c), `Coupon ${c.code} created`)}
+          onToggle={(code, on) => save(setCoupons, coupons, coupons.map((x) => (x.code === code ? { ...x, active: on } : x)), setCouponActive(code, on), `${code} ${on ? "activated" : "paused"}`)} />}
+        {section === "payments" && <PaymentsSection txns={txns} />}
+        {section === "reports" && <ReportsSection rides={rides} flash={flash} />}
+        {section === "support" && <SupportSection rows={tickets}
+          onStatus={(id, status) => save(setTickets, tickets, tickets.map((t) => (t.id === id ? { ...t, status } : t)), setTicketStatus(id, status), `${id} marked ${status}`)}
+          onNote={(id, note) => save(setTickets, tickets, tickets.map((t) => (t.id === id ? { ...t, notes: [...t.notes, note], status: t.status === "Open" ? "In Progress" : t.status } : t)), addTicketNote(id, note), "Note added")} />}
         {section === "notify" && <NotifySection flash={flash} />}
         {section === "settings" && <SettingsSection flash={flash} />}
       </main>
@@ -233,21 +245,30 @@ const compact = (n: number) => (n >= 100000 ? `₹${(n / 100000).toFixed(1)}L` :
 
 /* ───────────────────────── Login ───────────────────────── */
 
-function AdminLogin({ onLogin }: { onLogin: () => void }) {
+export function AdminLogin() {
+  const router = useRouter();
   const [email, setEmail] = useState("admin@ridewallah.in");
   const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true); setErr("");
+    const { error } = await login(email, pw);
+    if (error) { setErr(error); setBusy(false); return; }
+    router.refresh();
+  };
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: "var(--hero)" }}>
-      <form onSubmit={(e) => { e.preventDefault(); if (pw) onLogin(); }} className="fade-up" style={{ ...card, width: "min(400px,100%)", padding: 28, background: "var(--app-bg)" }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (pw && !busy) submit(); }} className="fade-up" style={{ ...card, width: "min(400px,100%)", padding: 28, background: "var(--app-bg)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}><BrandMark size={40} /><Wordmark sub="ADMIN PANEL" size={22} /></div>
         <h1 style={{ margin: "22px 0 4px", fontSize: 22, fontWeight: 800, textAlign: "center" }}>Admin Portal</h1>
         <p style={{ margin: "0 0 20px", fontSize: 13.5, color: "var(--ink-soft)", textAlign: "center" }}>Sign in to manage rides, drivers and payments</p>
         <label style={label} htmlFor="ae">Email</label>
         <input id="ae" type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ ...field, marginBottom: 14 }} autoComplete="username" />
         <label style={label} htmlFor="ap">Password</label>
-        <input id="ap" type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Any password (demo)" style={{ ...field, marginBottom: 20 }} autoComplete="current-password" />
-        <PrimaryButton type="submit" disabled={!pw}><LockIcon s={17} c={pw ? "white" : "var(--ink-mute)"} /> Login</PrimaryButton>
-        <p style={{ margin: "14px 0 0", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center" }}>Demo build · role-based access & audit logs come with the real API</p>
+        <input id="ap" type="password" value={pw} onChange={(e) => setPw(e.target.value)} style={{ ...field, marginBottom: err ? 8 : 20 }} autoComplete="current-password" />
+        {err && <p role="alert" style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--red)" }}>{err}</p>}
+        <PrimaryButton type="submit" disabled={!pw || busy}><LockIcon s={17} c={pw ? "white" : "var(--ink-mute)"} /> {busy ? "Signing in…" : "Login"}</PrimaryButton>
       </form>
     </div>
   );
@@ -255,18 +276,23 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
 
 /* ───────────────────────── Dashboard ───────────────────────── */
 
-function Dashboard({ drivers, pending, open, go }: { drivers: Driver[]; pending: number; open: number; go: (s: Section) => void }) {
+function Dashboard({ rides, drivers, customers, pending, open, go }: { rides: Ride[]; drivers: Driver[]; customers: Customer[]; pending: number; open: number; go: (s: Section) => void }) {
   const { vehicleById } = useCatalog();
   const onlineNow = drivers.filter((d) => d.online && !d.suspended).length;
+  const completed = rides.filter((r) => r.status === "Completed").length;
+  const cancelled = rides.filter((r) => r.status === "Cancelled").length;
+  const byVehicle = (["sedan", "auto", "mini", "bike", "suv"] as const)
+    .map((k) => [k, rides.length ? Math.round((rides.filter((r) => r.vehicle === k).length / rides.length) * 100) : 0] as const)
+    .sort((a, b) => b[1] - a[1]);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="adm-grid-4">
         <Stat label="Today's Revenue" value={inr(248000)} delta="↑ 15% vs last Sunday" tone="blue" onClick={() => go("reports")} />
         <Stat label="Today's Rides" value="1,248" delta="↑ 12%" onClick={() => go("rides")} />
-        <Stat label="Online Drivers" value={`${245 + onlineNow}`} delta="↑ 8%" onClick={() => go("live")} />
-        <Stat label="Total Customers" value="18,420" delta="↑ 214 this week" onClick={() => go("customers")} />
-        <Stat label="Completed / Cancelled" value="1,164 / 84" />
-        <Stat label="Registered Drivers" value="1,032" />
+        <Stat label="Online Drivers" value={String(onlineNow)} onClick={() => go("live")} />
+        <Stat label="Total Customers" value={customers.length.toLocaleString("en-IN")} onClick={() => go("customers")} />
+        <Stat label="Completed / Cancelled" value={`${completed} / ${cancelled}`} />
+        <Stat label="Registered Drivers" value={drivers.length.toLocaleString("en-IN")} />
         <Stat label="Pending Approvals" value={String(pending)} tone="gold" onClick={() => go("drivers")} />
         <Stat label="Open Tickets" value={String(open)} tone="red" onClick={() => go("support")} />
       </div>
@@ -275,18 +301,18 @@ function Dashboard({ drivers, pending, open, go }: { drivers: Driver[]; pending:
           <BarChart data={WEEK.map((w) => ({ d: w.d, v: w.revenue }))} format={compact} />
         </Panel>
         <Panel title="Rides by vehicle">
-          {[["sedan", 34], ["auto", 26], ["mini", 18], ["bike", 15], ["suv", 7]].map(([k, p]) => (
+          {byVehicle.map(([k, p]) => (
             <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
               <VehicleArt kind={k as Vehicle["id"]} size={40} />
               <span style={{ width: 52, fontSize: 13, fontWeight: 600 }}>{vehicleById(k as Vehicle["id"]).name}</span>
-              <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--line)" }}><div style={{ width: `${(p as number) * 2.5}%`, height: "100%", borderRadius: 4, background: "var(--blue)" }} /></div>
+              <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--line)" }}><div style={{ width: `${p}%`, height: "100%", borderRadius: 4, background: "var(--blue)" }} /></div>
               <span style={{ width: 36, textAlign: "right", fontSize: 12.5, fontWeight: 700 }}>{p}%</span>
             </div>
           ))}
         </Panel>
       </div>
       <Panel title="Recent Rides" right={<button onClick={() => go("rides")} style={{ background: "none", border: "none", color: "var(--blue)", fontWeight: 600, cursor: "pointer" }}>View all →</button>}>
-        <RidesTable rows={RIDES.slice(0, 5)} onOpen={() => go("rides")} />
+        <RidesTable rows={rides.slice(0, 5)} onOpen={() => go("rides")} />
       </Panel>
     </div>
   );
@@ -354,7 +380,7 @@ function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
   );
 }
 
-function RidesSection() {
+function RidesSection({ rides }: { rides: Ride[] }) {
   const { vehicles, vehicleById } = useCatalog();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
@@ -362,7 +388,7 @@ function RidesSection() {
   const [kind, setKind] = useState("Rides & Parcels");
   const [ac, setAc] = useState("AC & Non-AC");
   const [open, setOpen] = useState<Ride | null>(null);
-  const rows = RIDES.filter((r) =>
+  const rows = rides.filter((r) =>
     (kind === "Rides & Parcels" || (kind === "Parcels") === (r.service === "parcel")) &&
     (ac === "AC & Non-AC" || (r.service !== "parcel" && vehicleById(r.vehicle).acOption && r.ac === (ac === "AC"))) &&
     (status === "All" || (status === "Ongoing" ? ["Started", "Arriving", "Assigned", "Arrived"].includes(r.status) : r.status === status)) &&
@@ -383,8 +409,8 @@ function RidesSection() {
   );
 }
 
-function LiveRides() {
-  const live = RIDES.filter((r) => ["Started", "Arriving", "Assigned", "Arrived"].includes(r.status));
+function LiveRides({ rides }: { rides: Ride[] }) {
+  const live = rides.filter((r) => ["Started", "Arriving", "Assigned", "Arrived"].includes(r.status));
   const [open, setOpen] = useState<Ride | null>(null);
   return (
     <div className="adm-grid-2">
@@ -412,7 +438,7 @@ function LiveRides() {
 
 /* ───────────────────────── Customers ───────────────────────── */
 
-function CustomersSection({ rows, onToggle }: { rows: Customer[]; onToggle: (id: string) => void }) {
+function CustomersSection({ rows, rides, onToggle }: { rows: Customer[]; rides: Ride[]; onToggle: (id: string) => void }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const list = rows.filter((c) => `${c.name} ${c.phone} ${c.email} ${c.id}`.toLowerCase().includes(q.toLowerCase()));
@@ -442,7 +468,7 @@ function CustomersSection({ rows, onToggle }: { rows: Customer[]; onToggle: (id:
             {kv("Account", <StatusBadge status={sel.blocked ? "Blocked" : "Active"} />)}
           </div>
           <Panel title="Ride history">
-            {RIDES.filter((r) => r.customer === sel.name).map((r) => <div key={r.id}>{kv(`#${r.id} · ${r.date}`, <>{inr(r.fare)} <StatusBadge status={r.status} /></>)}</div>)}
+            {rides.filter((r) => r.customer === sel.name).map((r) => <div key={r.id}>{kv(`#${r.id} · ${r.date}`, <>{inr(r.fare)} <StatusBadge status={r.status} /></>)}</div>)}
           </Panel>
           <PrimaryButton tone={sel.blocked ? "blue" : "red"} onClick={() => onToggle(sel.id)}>{sel.blocked ? "Unblock account" : "Block account"}</PrimaryButton>
         </Drawer>
@@ -605,14 +631,14 @@ function PricingSection({ vehicles, setVehicles, commission, setCommission, surg
 
 /* ───────────────────────── Coupons ───────────────────────── */
 
-function CouponsSection({ rows, setRows, flash }: { rows: Coupon[]; setRows: (c: Coupon[]) => void; flash: (m: string) => void }) {
+function CouponsSection({ rows, onCreate, onToggle }: { rows: Coupon[]; onCreate: (c: Coupon) => void; onToggle: (code: string, on: boolean) => void }) {
   const [code, setCode] = useState("");
   const [off, setOff] = useState(20);
   const [pct, setPct] = useState(true);
   const create = () => {
     if (!code.trim() || rows.some((c) => c.code === code)) return;
-    setRows([{ code, title: pct ? `${off}% off` : `Flat ₹${off} off`, body: "New promotion", off, pct, max: pct ? 100 : undefined, expires: "31 Dec 2026", uses: 0, active: true }, ...rows]);
-    setCode(""); flash(`Coupon ${code} created`);
+    onCreate({ code, title: pct ? `${off}% off` : `Flat ₹${off} off`, body: "New promotion", off, pct, max: pct ? 100 : undefined, expires: "31 Dec 2026", uses: 0, active: true });
+    setCode("");
   };
   return (
     <div className="adm-grid-2">
@@ -625,7 +651,7 @@ function CouponsSection({ rows, setRows, flash }: { rows: Coupon[]; setRows: (c:
                 <tr key={c.code} style={{ cursor: "default" }}>
                   <td><span style={{ fontWeight: 700, color: "var(--gold-dark)", border: "1.5px dashed var(--gold)", borderRadius: 8, padding: "2px 8px" }}>{c.code}</span></td>
                   <td>{c.title}</td><td>{c.expires}</td><td>{(c.uses ?? 0).toLocaleString("en-IN")}</td>
-                  <td><Toggle on={!!c.active} onChange={(on) => setRows(rows.map((x) => (x.code === c.code ? { ...x, active: on } : x)))} label={`${c.code} active`} /></td>
+                  <td><Toggle on={!!c.active} onChange={(on) => onToggle(c.code, on)} label={`${c.code} active`} /></td>
                 </tr>
               ))}
             </tbody>
@@ -647,16 +673,17 @@ function CouponsSection({ rows, setRows, flash }: { rows: Coupon[]; setRows: (c:
 
 /* ───────────────────────── Payments ───────────────────────── */
 
-function PaymentsSection() {
+function PaymentsSection({ txns }: { txns: Txn[] }) {
   const [kind, setKind] = useState("All");
-  const rows = TXNS.filter((t) => kind === "All" || t.kind === kind);
+  const rows = txns.filter((t) => kind === "All" || t.kind === kind);
+  const total = (k: Txn["kind"]) => Math.abs(txns.filter((t) => t.kind === k).reduce((s, t) => s + t.amount, 0));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div className="adm-grid-4">
-        <Stat label="Collected today" value={inr(248000)} tone="blue" />
-        <Stat label="Commission earned" value={inr(49600)} delta="20% avg" />
-        <Stat label="Pending driver payouts" value={inr(186400)} tone="gold" />
-        <Stat label="Refunds (7 days)" value={inr(3240)} tone="red" />
+        <Stat label="Fares collected" value={inr(total("Ride Fare"))} tone="blue" />
+        <Stat label="Commission earned" value={inr(total("Commission"))} />
+        <Stat label="Driver payouts" value={inr(total("Driver Payout"))} tone="gold" />
+        <Stat label="Refunds" value={inr(total("Refund"))} tone="red" />
       </div>
       <Panel title="Transactions" right={<Chips value={kind} options={["All", "Ride Fare", "Commission", "Driver Payout", "Refund"]} onChange={setKind} />}>
         <div className="adm-table-wrap">
@@ -679,11 +706,11 @@ function PaymentsSection() {
 
 /* ───────────────────────── Reports ───────────────────────── */
 
-function ReportsSection({ flash }: { flash: (m: string) => void }) {
+function ReportsSection({ rides, flash }: { rides: Ride[]; flash: (m: string) => void }) {
   const [range, setRange] = useState("Last 7 days");
   const exportCsv = () => {
     const head = "Ride,Date,Customer,Driver,Vehicle,Km,Fare,Discount,Commission,Payment,Status";
-    const lines = RIDES.map((r) => [r.id, r.date, r.customer, r.driver, r.vehicle, r.km, r.fare, r.discount, Math.round((r.fare - r.discount) * 0.2), r.pay, r.status].join(","));
+    const lines = rides.map((r) => [r.id, r.date, r.customer, r.driver, r.vehicle, r.km, r.fare, r.discount, Math.round((r.fare - r.discount) * 0.2), r.pay, r.status].join(","));
     const url = URL.createObjectURL(new Blob([[head, ...lines].join("\n")], { type: "text/csv" }));
     const a = document.createElement("a"); a.href = url; a.download = "ridewallah-rides-report.csv"; a.click(); URL.revokeObjectURL(url);
     flash("Report exported");
@@ -718,11 +745,10 @@ function ReportsSection({ flash }: { flash: (m: string) => void }) {
 
 /* ───────────────────────── Support ───────────────────────── */
 
-function SupportSection({ rows, setRows, flash }: { rows: Ticket[]; setRows: (t: Ticket[]) => void; flash: (m: string) => void }) {
+function SupportSection({ rows, onStatus, onNote }: { rows: Ticket[]; onStatus: (id: string, s: Ticket["status"]) => void; onNote: (id: string, note: string) => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const sel = rows.find((t) => t.id === open);
-  const upd = (id: string, p: Partial<Ticket>) => setRows(rows.map((t) => (t.id === id ? { ...t, ...p } : t)));
   return (
     <Panel title="Support tickets">
       <div className="adm-table-wrap">
@@ -746,12 +772,12 @@ function SupportSection({ rows, setRows, flash }: { rows: Ticket[]; setRows: (t:
           </div>
           <div>
             <span style={label}>Status</span>
-            <Chips value={sel.status} options={["Open", "In Progress", "Resolved"] as Ticket["status"][]} onChange={(s) => { upd(sel.id, { status: s }); flash(`${sel.id} marked ${s}`); }} />
+            <Chips value={sel.status} options={["Open", "In Progress", "Resolved"] as Ticket["status"][]} onChange={(s) => onStatus(sel.id, s)} />
           </div>
           <Panel title="Notes & replies">
             {sel.notes.length === 0 && <p style={{ margin: 0, fontSize: 13, color: "var(--ink-mute)" }}>No notes yet.</p>}
             {sel.notes.map((n, i) => <p key={i} style={{ margin: "0 0 8px", fontSize: 13.5, background: "var(--bg-secondary)", borderRadius: 10, padding: "8px 10px" }}>{n}</p>)}
-            <form onSubmit={(e) => { e.preventDefault(); if (!note.trim()) return; upd(sel.id, { notes: [...sel.notes, note.trim()], status: sel.status === "Open" ? "In Progress" : sel.status }); setNote(""); }} style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (!note.trim()) return; onNote(sel.id, note.trim()); setNote(""); }} style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a reply or internal note…" aria-label="Note" style={{ ...field, flex: 1, padding: "9px 12px" }} />
               <button type="submit" style={smallBtn("blue")}>Add</button>
             </form>
