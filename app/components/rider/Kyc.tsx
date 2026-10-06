@@ -131,13 +131,15 @@ export function KycFlow({ onSubmit }: { onSubmit: (k: KycData) => void }) {
   );
 }
 
-/** Waiting for admin approval. */
-export function PendingApproval({ name, onApproved }: { name: string; onApproved: () => void }) {
+/** Waiting for an admin to review the KYC (the app re-checks in the background). */
+export function PendingApproval({ name, rejected, onLogout }: { name: string; rejected: boolean; onLogout: () => void }) {
   return (
     <div className="fade-up" style={{ position: "absolute", inset: 0, zIndex: 190, background: "var(--app-bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, textAlign: "center" }}>
       <div style={{ width: 96, height: 96, borderRadius: "50%", background: "var(--gold-tint)", display: "flex", alignItems: "center", justifyContent: "center" }}><ClockIcon s={48} c="var(--gold-dark)" w={1.6} /></div>
-      <h1 style={{ margin: "20px 0 6px", fontSize: 24, fontWeight: 800 }}>Verification in progress</h1>
-      <p style={{ margin: 0, fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>Thanks, {name.split(" ")[0] || "rider"}! Our team is reviewing your documents. This usually takes 24–48 hours — we&apos;ll notify you once you&apos;re approved.</p>
+      <h1 style={{ margin: "20px 0 6px", fontSize: 24, fontWeight: 800 }}>{rejected ? "Application not approved" : "Verification in progress"}</h1>
+      <p style={{ margin: 0, fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>{rejected
+        ? <>Sorry, {name.split(" ")[0] || "rider"} — we couldn&apos;t approve your documents. Contact rider support to fix them and we&apos;ll review again.</>
+        : <>Thanks, {name.split(" ")[0] || "rider"}! Our team is reviewing your documents. This usually takes 24–48 hours — this screen updates as soon as you&apos;re approved.</>}</p>
       <div style={{ ...card, width: "100%", padding: 14, marginTop: 22, textAlign: "left" }}>
         {[["Documents submitted", true], ["Background check", false], ["Account activated", false]].map(([t, d], i) => (
           <div key={String(t)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderTop: i ? "1px solid var(--line)" : "none" }}>
@@ -146,7 +148,7 @@ export function PendingApproval({ name, onApproved }: { name: string; onApproved
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 20 }}><DemoButton onClick={onApproved}>approve my account</DemoButton></div>
+      <button onClick={onLogout} style={{ marginTop: 20, background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Log out</button>
     </div>
   );
 }

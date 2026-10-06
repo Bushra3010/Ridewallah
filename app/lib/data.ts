@@ -71,8 +71,28 @@ export function fareFor(v: Vehicle, km: number, min: number, surge = 1, ac = tru
   return v.acOption && !ac ? Math.round(f * (1 - NON_AC_DISCOUNT)) : f;
 }
 
-export function parcelFareFor(v: Vehicle, km: number, min: number, w: ParcelWeight) {
-  return Math.round(fareFor(v, km, min) * PARCEL_RATE) + w.extra;
+export function parcelFareFor(v: Vehicle, km: number, min: number, w: ParcelWeight, surge = 1) {
+  return Math.round(fareFor(v, km, min, surge) * PARCEL_RATE) + w.extra;
+}
+
+/* ───────────── Platform settings (admin → Pricing & Settings) ───────────── */
+
+export interface ServiceArea { city: string; active: boolean }
+
+export interface Settings {
+  commissionPct: number;
+  surgeOn: boolean; surgeMult: number;
+  cash: boolean; online: boolean; autoAssign: boolean; sos: boolean; scheduled: boolean; maintenance: boolean;
+  serviceAreas: ServiceArea[];
+}
+
+export const AUDIENCES = ["All customers", "All drivers", "Noida only", "Inactive riders"] as const;
+export interface Announcement { id: string; audience: (typeof AUDIENCES)[number]; title: string; body: string; at: string }
+
+/** Surge applies on weekdays, 8–11 AM and 6–9 PM. */
+export function isPeak(d = new Date()) {
+  const day = d.getDay(), h = d.getHours();
+  return day >= 1 && day <= 5 && ((h >= 8 && h < 11) || (h >= 18 && h < 21));
 }
 
 export interface Coupon { code: string; title: string; body: string; off: number; pct?: boolean; max?: number; expires: string; uses?: number; active?: boolean }

@@ -136,9 +136,10 @@ export function AcPill({ ac }: { ac: boolean }) {
 
 export function ChooseRidePage({ from, to, prefer, preferAc = true, onBack, onNext }: {
   from: Place; to: Place; prefer?: VehicleKind; preferAc?: boolean; onBack: () => void;
-  onNext: (b: Pick<Booking, "vehicle" | "ac" | "km" | "min" | "fare">) => void;
+  onNext: (b: Pick<Booking, "vehicle" | "ac" | "km" | "min" | "fare" | "surge">) => void;
 }) {
-  const { vehicles, vehicleById, vehicleLabel } = useCatalog();
+  const { vehicles, vehicleById, vehicleLabel, surgeNow } = useCatalog();
+  const surge = surgeNow();
   const { km, min } = tripEstimate(from.id, to.id);
   const [filter, setFilter] = useState<AcFilter>("All");
   const first = prefer ?? "mini";
@@ -146,7 +147,7 @@ export function ChooseRidePage({ from, to, prefer, preferAc = true, onBack, onNe
   const options = rideOptions(vehicles, filter);
   const picked = options.find((o) => o.key === sel) ?? options[0];
   const v = vehicleById(picked.id);
-  const fare = fareFor(v, km, min, 1, picked.ac);
+  const fare = fareFor(v, km, min, surge, picked.ac);
 
   return (
     <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
@@ -165,7 +166,7 @@ export function ChooseRidePage({ from, to, prefer, preferAc = true, onBack, onNe
       <div style={{ flex: 1, marginTop: -20, position: "relative", background: "var(--app-bg)", borderRadius: "22px 22px 0 0", padding: "8px 16px 0" }}>
         <div style={{ width: 40, height: 4, borderRadius: 4, background: "var(--line-strong)", margin: "0 auto 12px" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "0 2px 10px" }}>
-          <p style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "var(--ink)" }}>Select a ride</p>
+          <p style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "var(--ink)" }}>Select a ride{surge > 1 && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: "var(--gold-dark)", background: "var(--gold-tint)", borderRadius: 6, padding: "2px 7px", verticalAlign: "middle" }}>{surge}× peak</span>}</p>
           <div role="tablist" aria-label="AC preference" style={{ display: "flex", background: "var(--bg-secondary)", borderRadius: 999, padding: 3 }}>
             {(["All", "AC", "Non-AC"] as AcFilter[]).map((f) => (
               <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)} style={{
@@ -196,14 +197,14 @@ export function ChooseRidePage({ from, to, prefer, preferAc = true, onBack, onNe
                     {x.eta} min away · {x.acOption && !o.ac ? `Windows down, ${Math.round(NON_AC_DISCOUNT * 100)}% cheaper` : x.tagline}
                   </p>
                 </div>
-                <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ink)" }}>{inr(fareFor(x, km, min, 1, o.ac))}</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ink)" }}>{inr(fareFor(x, km, min, surge, o.ac))}</span>
               </button>
             );
           })}
         </div>
         <p style={{ margin: "12px 2px 0", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center" }}>Fares are estimates · final fare depends on actual route and time</p>
       </div>
-      <Footer><PrimaryButton onClick={() => onNext({ vehicle: picked.id, ac: picked.ac, km, min, fare })}>Choose {vehicleLabel(picked.id, v.acOption ? picked.ac : undefined)} · {inr(fare)}</PrimaryButton></Footer>
+      <Footer><PrimaryButton onClick={() => onNext({ vehicle: picked.id, ac: picked.ac, km, min, fare, surge })}>Choose {vehicleLabel(picked.id, v.acOption ? picked.ac : undefined)} · {inr(fare)}</PrimaryButton></Footer>
     </div>
   );
 }
@@ -212,9 +213,10 @@ export function ChooseRidePage({ from, to, prefer, preferAc = true, onBack, onNe
 
 export function ParcelPage({ from, to, initial, onBack, onNext }: {
   from: Place; to: Place; initial?: ParcelInfo; onBack: () => void;
-  onNext: (b: Pick<Booking, "vehicle" | "ac" | "km" | "min" | "fare" | "parcel">) => void;
+  onNext: (b: Pick<Booking, "vehicle" | "ac" | "km" | "min" | "fare" | "surge" | "parcel">) => void;
 }) {
-  const { parcelWeights, parcelVehicles } = useCatalog();
+  const { parcelWeights, parcelVehicles, surgeNow } = useCatalog();
+  const surge = surgeNow();
   const { km, min } = tripEstimate(from.id, to.id);
   const [type, setType] = useState<ParcelInfo["type"]>(initial?.type ?? "Documents");
   const [weightId, setWeightId] = useState(parcelWeights.find((w) => w.label === initial?.weight)?.id ?? parcelWeights[0].id);
@@ -225,7 +227,7 @@ export function ParcelPage({ from, to, initial, onBack, onNext }: {
   const fits = parcelVehicles.filter((v) => v.parcelMaxKg >= weight.kg);
   const [vid, setVid] = useState<VehicleKind>("bike");
   const vehicle = fits.find((v) => v.id === vid) ?? fits[0];
-  const fare = parcelFareFor(vehicle, km, min, weight);
+  const fare = parcelFareFor(vehicle, km, min, weight, surge);
   const ready = receiver.trim().length > 1 && phone.length === 10;
 
   const chip = (on: boolean): React.CSSProperties => ({
@@ -279,7 +281,7 @@ export function ParcelPage({ from, to, initial, onBack, onNext }: {
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{v.id === "mini" ? "Mini (car boot)" : v.name}</p>
                     <p style={{ margin: 0, fontSize: 11.5, color: "var(--ink-soft)" }}>{ok ? `Up to ${v.parcelMaxKg} kg · ${v.eta} min away` : `Max ${v.parcelMaxKg} kg — too heavy`}</p>
                   </div>
-                  {ok && <span style={{ fontSize: 15, fontWeight: 800 }}>{inr(parcelFareFor(v, km, min, weight))}</span>}
+                  {ok && <span style={{ fontSize: 15, fontWeight: 800 }}>{inr(parcelFareFor(v, km, min, weight, surge))}</span>}
                 </button>
               );
             })}
@@ -302,7 +304,7 @@ export function ParcelPage({ from, to, initial, onBack, onNext }: {
       </div>
       <Footer>
         <PrimaryButton disabled={!ready} onClick={() => onNext({
-          vehicle: vehicle.id, ac: false, km, min, fare,
+          vehicle: vehicle.id, ac: false, km, min, fare, surge,
           parcel: { type, weight: weight.label, receiver: receiver.trim(), receiverPhone: `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`, note: note.trim() || undefined },
         })}>{ready ? `Continue · ${inr(fare)}` : "Add receiver details"}</PrimaryButton>
       </Footer>
@@ -320,8 +322,10 @@ const PAYS: { id: PayMethod; label: string; sub: string; Icon: typeof CardIcon }
 ];
 
 export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; onBack: () => void; onConfirm: (coupon: Coupon | null, pay: PayMethod) => void }) {
-  const { coupons, activeCoupons, parcelWeights, vehicleById, vehicleLabel } = useCatalog();
-  const [pay, setPay] = useState<PayMethod>(booking.pay);
+  const { coupons, activeCoupons, parcelWeights, vehicleById, vehicleLabel, settings } = useCatalog();
+  // Admin → Settings can switch cash or online payments off.
+  const pays = PAYS.filter((p) => (p.id === "Cash" ? settings.cash : settings.online));
+  const [pay, setPay] = useState<PayMethod>(pays.some((p) => p.id === booking.pay) ? booking.pay : pays[0]?.id ?? booking.pay);
   const [coupon, setCoupon] = useState<Coupon | null>(booking.coupon);
   const [code, setCode] = useState("");
   const [err, setErr] = useState("");
@@ -329,10 +333,12 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
   const isParcel = booking.service === "parcel";
   const off = discountFor(coupon, booking.fare);
   const total = booking.fare - off;
-  // Breakdown is built from the standard (AC, passenger) fare, then adjusted.
-  const standard = fareFor(v, booking.km, booking.min);
+  // Breakdown is built from the standard (AC, passenger) fare, plus any peak surge, then adjusted.
+  const plain = fareFor(v, booking.km, booking.min);
+  const standard = fareFor(v, booking.km, booking.min, booking.surge);
+  const surgeExtra = standard - plain;
   const distanceFare = Math.round(v.perKm * booking.km);
-  const timeFare = Math.max(0, standard - v.base - distanceFare);
+  const timeFare = Math.max(0, plain - v.base - distanceFare);
   const weightCharge = isParcel ? parcelWeights.find((w) => w.label === booking.parcel?.weight)?.extra ?? 0 : 0;
   const adjust = isParcel ? standard - Math.round(standard * PARCEL_RATE) : standard - booking.fare;
   const label = isParcel ? `${v.name} delivery` : vehicleLabel(v.id, v.acOption ? booking.ac : undefined);
@@ -408,7 +414,8 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
         <div>
           <p style={{ margin: "0 2px 8px", fontSize: 13.5, fontWeight: 600 }}>Payment Method</p>
           <div style={{ ...card, padding: "4px 14px" }}>
-            {PAYS.map(({ id, label: l, sub, Icon }, i) => {
+            {pays.length === 0 && <p style={{ margin: "12px 0", fontSize: 13, color: "var(--ink-soft)" }}>Payments are paused right now — please try again shortly.</p>}
+            {pays.map(({ id, label: l, sub, Icon }, i) => {
               const on = id === pay;
               return (
                 <button key={id} onClick={() => setPay(id)} aria-pressed={on} style={{
@@ -432,6 +439,7 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
           {row("Base fare", inr(v.base))}
           {row(`Distance (${booking.km} km × ₹${v.perKm})`, inr(distanceFare))}
           {row(`Time (~${booking.min} min)`, inr(timeFare))}
+          {surgeExtra > 0 && row(`Peak pricing (${booking.surge}×)`, inr(surgeExtra))}
           {adjust > 0 && row(isParcel ? `Parcel rate (${Math.round((1 - PARCEL_RATE) * 100)}% off)` : `Non-AC (${Math.round(NON_AC_DISCOUNT * 100)}% off)`, "− " + inr(adjust), false, "var(--success-text)")}
           {weightCharge > 0 && row(`Weight (${booking.parcel!.weight})`, inr(weightCharge))}
           {off > 0 && row(`Coupon ${coupon!.code}`, "− " + inr(off), false, "var(--success-text)")}
@@ -439,7 +447,7 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
           {row("Total Fare", inr(total), true)}
         </div>
       </div>
-      <Footer><PrimaryButton onClick={() => onConfirm(coupon, pay)}>{isParcel ? "Confirm Delivery" : "Confirm Ride"} · {inr(total)}</PrimaryButton></Footer>
+      <Footer><PrimaryButton disabled={pays.length === 0} onClick={() => onConfirm(coupon, pay)}>{isParcel ? "Confirm Delivery" : "Confirm Ride"} · {inr(total)}</PrimaryButton></Footer>
     </div>
   );
 }

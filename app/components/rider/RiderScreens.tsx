@@ -13,7 +13,6 @@ import { inr, WEEK, type Driver, type ParcelInfo, type Ride, type Service } from
 import { useCatalog } from "../../lib/CatalogProvider";
 
 /** Platform commission on every fare. */
-export const COMMISSION = 0.2;
 
 export interface RideRequest {
   id: string; customer: string; initials: string; rating: number;
@@ -196,6 +195,7 @@ export const REQUEST_SECONDS = 15;
 export function RequestPopup({ req, autoAccept, towardsHome, onAccept, onDecline }: {
   req: RideRequest; autoAccept?: boolean; towardsHome?: boolean; onAccept: () => void; onDecline: (expired: boolean) => void;
 }) {
+  const { commission } = useCatalog();
   const [left, setLeft] = useState(REQUEST_SECONDS);
   useEffect(() => {
     if (left <= 0) { onDecline(true); return; }
@@ -204,7 +204,7 @@ export function RequestPopup({ req, autoAccept, towardsHome, onAccept, onDecline
     return () => clearTimeout(t);
   }, [left, autoAccept, onAccept, onDecline]);
 
-  const net = req.fare * (1 - COMMISSION);
+  const net = req.fare * (1 - commission);
   return (
     <div style={{ position: "absolute", inset: 0, zIndex: 150, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
       <div className="fade-up" style={{ position: "absolute", inset: 0, background: "rgba(15,23,41,0.5)" }} />
@@ -268,6 +268,7 @@ export function TripPage({ req, phase, progress, onArrived, onStart, onEnd, onCo
   onArrived: () => void; onStart: (waitFee: number) => void; onEnd: () => void; onCollected: () => void; onRated: (n: number) => void;
   onBack: () => void; onCall: () => void; onCancel: () => void; onSos: () => void; onNavigate: () => void;
 }) {
+  const { commission } = useCatalog();
   const [otp, setOtp] = useState("");
   const [otpErr, setOtpErr] = useState(false);
   const [stars, setStars] = useState(0);
@@ -295,12 +296,12 @@ export function TripPage({ req, phase, progress, onArrived, onStart, onEnd, onCo
           </p>
         </div>
         <div style={{ ...card, padding: "12px 16px", marginTop: 18 }}>
-          {([["Trip fare", inr(req.fare)], wait ? ["Waiting charge", inr(wait)] : null, [`Platform commission (${COMMISSION * 100}%)`, "− " + inr(total * COMMISSION)]].filter(Boolean) as string[][]).map(([l, v]) => (
+          {([["Trip fare", inr(req.fare)], wait ? ["Waiting charge", inr(wait)] : null, [`Platform commission (${Math.round(commission * 100)}%)`, "− " + inr(total * commission)]].filter(Boolean) as string[][]).map(([l, v]) => (
             <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--ink-soft)", padding: "4px 0" }}><span>{l}</span><span>{v}</span></div>
           ))}
           <div style={{ borderTop: "1px dashed var(--line-strong)", margin: "6px 0" }} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, padding: "4px 0" }}><span>You earn</span><span style={{ color: "var(--success-text)" }}>{inr(total * (1 - COMMISSION))}</span></div>
-          {req.pay === "Cash" && <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ink-mute)", lineHeight: 1.45 }}>You keep the cash. The {inr(total * COMMISSION)} commission is added to your wallet dues.</p>}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, padding: "4px 0" }}><span>You earn</span><span style={{ color: "var(--success-text)" }}>{inr(total * (1 - commission))}</span></div>
+          {req.pay === "Cash" && <p style={{ margin: "6px 0 0", fontSize: 11.5, color: "var(--ink-mute)", lineHeight: 1.45 }}>You keep the cash. The {inr(total * commission)} commission is added to your wallet dues.</p>}
         </div>
         {phase === "rate" && (
           <div className="fade-up" style={{ ...card, padding: 16, marginTop: 12, textAlign: "center" }}>
@@ -401,10 +402,11 @@ export function TripPage({ req, phase, progress, onArrived, onStart, onEnd, onCo
 /* ───────────────────────── Earnings ───────────────────────── */
 
 export function EarningsScreen({ today, onBack }: { today: { earnings: number; trips: number; minutes: number }; onBack?: () => void }) {
+  const { commission: rate } = useCatalog();
   const [range, setRange] = useState<"day" | "week" | "month">("week");
-  const gross = { day: today.earnings / (1 - COMMISSION), week: 18420, month: 74860 }[range];
+  const gross = { day: today.earnings / (1 - rate), week: 18420, month: 74860 }[range];
   const trips = { day: today.trips, week: 92, month: 371 }[range];
-  const commission = gross * COMMISSION;
+  const commission = gross * rate;
   const bars = range === "day"
     ? ["6a", "9a", "12p", "3p", "6p", "9p"].map((d, i) => ({ d, v: [0.2, 0.7, 0.4, 0.5, 0.9, 0.6][i] }))
     : WEEK.map((w) => ({ d: w.d, v: w.revenue / 320000 }));
@@ -435,7 +437,7 @@ export function EarningsScreen({ today, onBack }: { today: { earnings: number; t
         </div>
         <div style={{ ...card, padding: "12px 16px" }}>
           <p style={{ margin: "0 0 6px", fontSize: 13.5, fontWeight: 700 }}>Breakdown</p>
-          {[["Gross fares", inr(gross)], [`Platform commission (${COMMISSION * 100}%)`, "− " + inr(commission)], ["Incentives & bonus", inr(range === "day" ? 0 : range === "week" ? 500 : 2000)]].map(([l, v]) => (
+          {[["Gross fares", inr(gross)], [`Platform commission (${Math.round(commission * 100)}%)`, "− " + inr(commission)], ["Incentives & bonus", inr(range === "day" ? 0 : range === "week" ? 500 : 2000)]].map(([l, v]) => (
             <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, color: "var(--ink-soft)", padding: "4px 0" }}><span>{l}</span><span>{v}</span></div>
           ))}
           <div style={{ borderTop: "1px dashed var(--line-strong)", margin: "6px 0" }} />
@@ -457,6 +459,7 @@ export function EarningsScreen({ today, onBack }: { today: { earnings: number; t
 /* ───────────────────────── Trips history ───────────────────────── */
 
 export function TripsScreen({ trips, onOpen }: { trips: Ride[]; onOpen: (r: Ride) => void }) {
+  const { commission } = useCatalog();
   const [filter, setFilter] = useState<"all" | "done" | "cancelled">("all");
   const shown = trips.filter((r) => filter === "all" || (filter === "done" ? r.status === "Completed" : r.status === "Cancelled"));
   return (
@@ -474,7 +477,7 @@ export function TripsScreen({ trips, onOpen }: { trips: Ride[]; onOpen: (r: Ride
             <RouteLines from={r.from} to={r.to} />
             <div style={{ borderTop: "1px solid var(--line)", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>{r.customer} · {r.km} km · {r.pay}</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: r.status === "Cancelled" ? "var(--ink-mute)" : "var(--ink)" }}>{r.status === "Cancelled" ? "—" : inr(r.fare * (1 - COMMISSION))}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: r.status === "Cancelled" ? "var(--ink-mute)" : "var(--ink)" }}>{r.status === "Cancelled" ? "—" : inr(r.fare * (1 - commission))}</span>
             </div>
           </button>
         ))}
@@ -486,13 +489,6 @@ export function TripsScreen({ trips, onOpen }: { trips: Ride[]; onOpen: (r: Ride
 /* ───────────────────────── Notifications ───────────────────────── */
 
 export type RiderAlert = [string, string, string, "ride" | "pay" | "policy" | "bonus"];
-
-export const RIDER_ALERTS: RiderAlert[] = [
-  ["New Ride Request", "Sector 12 → DLF Mall · ₹160", "2 min ago", "ride"],
-  ["Trip Completed", "₹128 credited to your wallet", "12 min ago", "pay"],
-  ["Policy Update", "New safety guidelines for night rides", "1 hour ago", "policy"],
-  ["Bonus Offer", "Complete 5 rides today & get ₹500", "3 hours ago", "bonus"],
-];
 
 export function AlertsScreen({ items, onBack }: { items: RiderAlert[]; onBack?: () => void }) {
   const icon = { ride: [AlertIcon, "var(--gold-dark)", "var(--gold-tint)"], pay: [CheckIcon, "var(--success-text)", "var(--success)"], policy: [ShieldIcon, "var(--blue)", "var(--blue-tint)"], bonus: [GiftIcon, "var(--purple)", "var(--purple-tint)"] } as const;

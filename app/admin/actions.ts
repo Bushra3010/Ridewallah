@@ -5,7 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { checkCredentials, endSession, requireAdmin, startSession } from "../lib/admin-auth";
 import { supabaseAdmin } from "../lib/supabase/admin";
-import type { Coupon, Driver, Ticket, Vehicle } from "../lib/data";
+import { AUDIENCES, type Coupon, type Driver, type Settings, type Ticket, type Vehicle } from "../lib/data";
 
 export type Result = { error?: string };
 
@@ -120,6 +120,41 @@ export async function createCoupon(c: Coupon) {
 export async function setCouponActive(code: string, active: boolean) {
   return run(async () => {
     const res = await supabaseAdmin.from("coupons").update({ active: !!active }).eq("code", String(code));
+    if (res.error) return res;
+    refreshApps();
+  });
+}
+
+/* ───────── Platform settings & broadcasts ───────── */
+
+/** Saves any subset of the platform settings. */
+export async function saveSettings(p: Partial<Settings>) {
+  return run(async () => {
+    const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    const bool = (k: keyof Settings, col: string) => { if (p[k] !== undefined) row[col] = !!p[k]; };
+    if (p.commissionPct !== undefined) {
+      const c = num(p.commissionPct); if (c > 100) throw new Error("Commission must be 0–100%"); row.commission_pct = c;
+    }
+    if (p.surgeMult !== undefined) {
+      const m = num(p.surgeMult); if (m < 1 || m > 5) throw new Error("Surge must be between 1× and 5×"); row.surge_mult = m;
+    }
+    bool("surgeOn", "surge_on"); bool("cash", "cash"); bool("online", "online"); bool("autoAssign", "auto_assign");
+    bool("sos", "sos"); bool("scheduled", "scheduled"); bool("maintenance", "maintenance");
+    if (p.serviceAreas !== undefined) {
+      row.service_areas = p.serviceAreas.slice(0, 50).map((a) => ({ city: String(a.city).slice(0, 40), active: !!a.active }));
+    }
+    const res = await supabaseAdmin.from("app_settings").update(row).eq("id", 1);
+    if (res.error) return res;
+    refreshApps();
+  });
+}
+
+export async function sendAnnouncement(audience: string, title: string, body: string) {
+  return run(async () => {
+    if (!(AUDIENCES as readonly string[]).includes(audience)) throw new Error("Unknown audience");
+    const t = String(title).trim().slice(0, 80), b = String(body).trim().slice(0, 500);
+    if (!t || !b) throw new Error("Title and message are required");
+    const res = await supabaseAdmin.from("announcements").insert({ audience, title: t, body: b });
     if (res.error) return res;
     refreshApps();
   });

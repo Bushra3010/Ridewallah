@@ -12,11 +12,11 @@ import {
 import type { ActiveRide, Booking } from "../components/customer/types";
 import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
-import { DRIVERS, MY_RIDES, PLACES, USER, discountFor, inr, nowTime, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
+import { DRIVERS, PLACES, discountFor, inr, nowTime, type Customer, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
+import { createCustomer, hasSession, loadCustomer, loadCustomerRides, sendOtp, signOut, verifyOtp } from "../lib/account";
 
 const SHELL_MAX_W = 430;
-const AUTH_KEY = "ridewallah:customer";
 
 type Tab = "home" | "rides" | "offers" | "support" | "profile";
 type Stage = "splash" | "phone" | "otp" | "setup" | "perm" | "app";
@@ -33,13 +33,12 @@ type Detail =
   | { k: "chat" }
   | { k: "info"; key: ProfileKey | "notifications" };
 
-type Rider = typeof USER;
+/** Placeholder until the signed-in customer's profile loads. */
+const NO_USER: Customer = { id: "", name: "", initials: "", phone: "", email: "", rides: 0, spent: 0, rating: 5, joined: "", complaints: 0 };
 
-const readRider = (): Rider | null => { try { const r = localStorage.getItem(AUTH_KEY); return r ? JSON.parse(r) : null; } catch { return null; } };
-const writeRider = (r: Rider | null) => { try { if (r) localStorage.setItem(AUTH_KEY, JSON.stringify(r)); else localStorage.removeItem(AUTH_KEY); } catch { /* storage blocked */ } };
+const BLOCKED = "This account has been blocked. Please contact support@ridewallah.in.";
 
 let seq = 1290;
-const initialsOf = (n: string) => n.split(/\s+/).map((s) => s[0]).join("").slice(0, 2).toUpperCase();
 
 /** Canned support replies until the real support backend is wired up. */
 function autoReply(body: string) {
@@ -52,15 +51,15 @@ function autoReply(body: string) {
 }
 
 export default function CustomerApp() {
-  const { coupons, activeCoupons } = useCatalog();
+  const { coupons, activeCoupons, settings } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
   const [phone, setPhone] = useState("");
-  const [user, setUser] = useState<Rider>(USER);
+  const [user, setUser] = useState<Customer>(NO_USER);
   const [tab, setTab] = useState<Tab>("home");
   const [stack, setStack] = useState<Detail[]>([]);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [active, setActive] = useState<ActiveRide | null>(null);
-  const [rides, setRides] = useState<Ride[]>(MY_RIDES);
+  const [rides, setRides] = useState<Ride[]>([]);
   const [chat, setChat] = useState<ChatMessage[]>([
     { id: 1, from: "agent", body: "Hi! 👋 Welcome to Ridewallah support. How can we help you today?", at: "10:02 AM" },
   ]);
@@ -71,12 +70,34 @@ export default function CustomerApp() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Returning riders skip login.
+  /** Signed in → load their profile and rides. Returns an error message, or null. */
+  const enter = async (afterSetup = false): Promise<string | null> => {
+    try {
+      const c = await loadCustomer();
+      if (!c) { setStage("setup"); return null; }
+      if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
+      setUser(c);
+      setRides(await loadCustomerRides(c.id));
+      setStage(afterSetup ? "perm" : "app");
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "Couldn't load your account";
+    }
+  };
+
+  // Returning customers skip login (Supabase keeps the session in this browser).
   useEffect(() => {
-    const r = readRider();
-    if (!r) return;
-    const t = setTimeout(() => { setUser(r); setStage("app"); }, 1100);
-    return () => clearTimeout(t);
+    let live = true;
+    const shown = Date.now();
+    hasSession().then(async (yes) => {
+      if (!yes || !live) return;
+      await new Promise((r) => setTimeout(r, Math.max(0, 1100 - (Date.now() - shown))));
+      if (!live) return;
+      const err = await enter();
+      if (err) flash(err);
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
   const detail = stack[stack.length - 1];
@@ -140,6 +161,7 @@ export default function CustomerApp() {
 
   const startBooking = (to?: Place, prefer?: VehicleKind, service: Service = "ride") => {
     if (active) { push({ k: "live" }); flash(`You already have a ${active.service === "parcel" ? "delivery" : "ride"} in progress`); return; }
+    if (settings.maintenance) { flash("Bookings are paused for maintenance — please try again shortly"); return; }
     push({ k: "search", to, prefer, service });
   };
 
@@ -185,7 +207,10 @@ export default function CustomerApp() {
     }, 1400);
   };
 
-  const logout = () => { writeRider(null); setStack([]); setTab("home"); setActive(null); setStage("splash"); };
+  const logout = async () => {
+    await signOut();
+    setUser(NO_USER); setRides([]); setStack([]); setTab("home"); setActive(null); setStage("splash");
+  };
 
   const showNav = stage === "app" && !detail;
   const chatFull = (!detail && tab === "support") || detail?.k === "chat";
@@ -197,17 +222,29 @@ export default function CustomerApp() {
       <div style={{ width: "100%", maxWidth: SHELL_MAX_W, height: "100%", position: "relative", background: "var(--app-bg)", overflow: "hidden", boxShadow: "var(--shadow-float)", display: "flex", flexDirection: "column" }}>
 
         {stage === "splash" && (
-          <SplashScreen tagline="Ride · Reach · Relax" onStart={() => setStage(readRider() ? "app" : "phone")} />
+          <SplashScreen tagline="Ride · Reach · Relax" onStart={() => setStage("phone")} />
         )}
-        {stage === "phone" && <PhoneLogin title="Welcome to" accent="Ridewallah" onSent={(p) => { setPhone(p); setStage("otp"); }} />}
-        {stage === "otp" && <OtpStep phone={phone} onBack={() => setStage("phone")} onVerified={() => setStage("setup")} />}
+        {stage === "phone" && <PhoneLogin title="Welcome to" accent="Ridewallah" onSend={async (p) => {
+          const err = await sendOtp(p);
+          if (!err) { setPhone(p); setStage("otp"); }
+          return err;
+        }} />}
+        {stage === "otp" && (
+          <OtpStep phone={phone} onBack={() => setStage("phone")} onResend={() => sendOtp(phone)}
+            onVerify={async (code) => (await verifyOtp(phone, code)) ?? (await enter())} />
+        )}
         {stage === "setup" && (
-          <ProfileSetup onDone={({ name, email }) => {
-            setUser({ ...USER, name, email, initials: initialsOf(name), phone: `+91 ${phone.slice(0, 5)} ${phone.slice(5)}` });
-            setStage("perm");
+          <ProfileSetup onDone={async ({ name, email }) => {
+            try {
+              await createCustomer({ name, email });
+              const err = await enter(true);
+              if (err) flash(err);
+            } catch (e) {
+              flash(e instanceof Error ? e.message : "Couldn't create your account");
+            }
           }} />
         )}
-        {stage === "perm" && <PermissionStep onDone={() => { writeRider(user); setStage("app"); }} />}
+        {stage === "perm" && <PermissionStep onDone={() => setStage("app")} />}
 
         {stage === "app" && (chatFull ? (
           <div style={{ flex: 1, minHeight: 0, paddingBottom: showNav ? "calc(76px + env(safe-area-inset-bottom))" : undefined }}>
@@ -223,7 +260,7 @@ export default function CustomerApp() {
               <SearchPage initialTo={detail.to} service={detail.service} onBack={back} onDone={(from, to) => {
                 const coupon = coupons.find((c) => c.code === pendingCoupon) ?? null;
                 const service = detail.service ?? "ride";
-                setBooking({ service, from, to, vehicle: detail.prefer ?? (service === "parcel" ? "bike" : "mini"), ac: true, km: 0, min: 0, fare: 0, coupon, pay: "UPI" });
+                setBooking({ service, from, to, vehicle: detail.prefer ?? (service === "parcel" ? "bike" : "mini"), ac: true, km: 0, min: 0, fare: 0, surge: 1, coupon, pay: settings.online ? "UPI" : "Cash" });
                 push({ k: service === "parcel" ? "parcel" : "choose" });
               }} />
             )}
@@ -256,6 +293,11 @@ export default function CustomerApp() {
             {detail?.k === "info" && <ProfileInfo which={detail.key} onBack={back} />}
 
             {/* ── Tabs ── */}
+            {!detail && tab === "home" && settings.maintenance && (
+              <div role="status" style={{ margin: "12px 16px 0", padding: "10px 14px", borderRadius: 14, background: "var(--gold-tint)", color: "var(--gold-dark)", fontSize: 13, fontWeight: 600 }}>
+                🛠 Ridewallah is under maintenance — new bookings are paused for a little while.
+              </div>
+            )}
             {!detail && tab === "home" && (
               <HomeScreen
                 firstName={firstName} active={active} unread={unread}
@@ -301,6 +343,7 @@ export default function CustomerApp() {
 
 /* Profile-menu pages that don't need a screen of their own yet. */
 function ProfileInfo({ which, onBack }: { which: ProfileKey | "notifications"; onBack: () => void }) {
+  const { announcementsFor } = useCatalog();
   const row: React.CSSProperties = { ...card, padding: 14, display: "flex", alignItems: "center", gap: 12 };
   const small: React.CSSProperties = { margin: "2px 0 0", fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.5 };
 
@@ -338,8 +381,9 @@ function ProfileInfo({ which, onBack }: { which: ProfileKey | "notifications"; o
     case "notifications":
       return (
         <InfoPage title="Notifications" onBack={onBack}>
-          {[["Trip completed", "₹160 paid via UPI for ride RD1289. Rate your driver!", "1h"], ["Weekend offer 🎉", "15% off all rides this weekend with WEEKEND.", "5h"], ["Refund processed", "₹166 for ride RD1282 is back in your wallet.", "1d"]].map(([t, b, w]) => (
-            <div key={t} style={row}>
+          {announcementsFor("customer").length === 0 && <p style={small}>No notifications yet.</p>}
+          {announcementsFor("customer").map(({ id, title: t, body: b, at: w }) => (
+            <div key={id} style={row}>
               <span style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--blue)", flexShrink: 0 }} />
               <div style={{ flex: 1 }}><p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{t}</p><p style={small}>{b}</p></div>
               <span style={{ fontSize: 11.5, color: "var(--ink-mute)" }}>{w}</span>

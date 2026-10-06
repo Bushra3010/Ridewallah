@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, BackIcon, BellIcon, PinIcon, CheckIcon } from "./icons";
 import { OtpInput, PrimaryButton, card, field, iconBtn, label } from "./ui";
 
@@ -54,41 +54,32 @@ const H = ({ title, accent, body }: { title: string; accent?: string; body: stri
   </div>
 );
 
-/** Mobile number → OTP. Demo accepts any 4 digits. */
-export function PhoneLogin({ title, accent, onSent, social = true }: { title: string; accent: string; onSent: (phone: string) => void; social?: boolean }) {
+/** Mobile number → SMS one-time password (Supabase phone auth). `onSend` returns an error message or null. */
+export function PhoneLogin({ title, accent, onSend }: { title: string; accent: string; onSend: (phone: string) => Promise<string | null> }) {
   const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const ok = phone.length === 10;
+  const submit = async () => {
+    setBusy(true); setErr("");
+    const e = await onSend(phone);
+    if (e) { setErr(e); setBusy(false); }
+  };
   return (
     <Shell>
       <H title={title} accent={accent} body="Enter your mobile number. We'll send you a one-time password." />
-      <form onSubmit={(e) => { e.preventDefault(); if (ok) onSent(phone); }} style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) submit(); }} style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
         <div>
           <label style={label} htmlFor="phone">Mobile Number</label>
           <div style={{ ...field, display: "flex", alignItems: "center", gap: 10, padding: "4px 14px" }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)", borderRight: "1.5px solid var(--line)", paddingRight: 10 }}>🇮🇳 +91</span>
             <input id="phone" value={phone} inputMode="numeric" autoComplete="tel-national" placeholder="98765 43210"
-              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setErr(""); }}
               style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, padding: "10px 0", color: "var(--ink)", letterSpacing: "0.04em" }} />
           </div>
+          {err && <p role="alert" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--red)" }}>{err}</p>}
         </div>
-        <PrimaryButton type="submit" disabled={!ok}>Get OTP</PrimaryButton>
-        {social && (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--ink-mute)", fontSize: 12 }}>
-              <span style={{ flex: 1, height: 1, background: "var(--line-strong)" }} /> or continue with <span style={{ flex: 1, height: 1, background: "var(--line-strong)" }} />
-            </div>
-            <div style={{ display: "flex", gap: 12 }}>
-              {["Google", "Apple"].map((p) => (
-                <button key={p} type="button" onClick={() => onSent("9876543210")} className="press" style={{ ...card, flex: 1, border: "none", padding: 13, fontSize: 14, fontWeight: 600, color: "var(--ink)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  {p === "Google"
-                    ? <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.5 12.2c0-.8-.1-1.4-.2-2H12v3.9h5.9a5 5 0 0 1-2.2 3.3v2.7h3.6c2-1.9 3.2-4.7 3.2-7.9z" /><path fill="#34A853" d="M12 23c3 0 5.5-1 7.3-2.7l-3.6-2.7c-1 .7-2.2 1-3.7 1-2.9 0-5.3-1.9-6.2-4.5H2.1v2.8A11 11 0 0 0 12 23z" /><path fill="#FBBC05" d="M5.8 14.1a6.6 6.6 0 0 1 0-4.2V7.1H2.1a11 11 0 0 0 0 9.8z" /><path fill="#EA4335" d="M12 5.4c1.6 0 3.1.6 4.2 1.7l3.2-3.2A11 11 0 0 0 2.1 7.1l3.7 2.8C6.7 7.3 9.1 5.4 12 5.4z" /></svg>
-                    : <svg width="18" height="18" viewBox="0 0 24 24" fill="#0f1729" aria-hidden="true"><path d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8s2 .8 3.3.8c1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1-2.7-4zM13.9 5c.7-.9 1.2-2 1-3.2-1 .1-2.2.7-3 1.6-.6.7-1.2 1.9-1 3.1 1.1 0 2.3-.6 3-1.5z" /></svg>}
-                  {p}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Sending…" : "Get OTP"}</PrimaryButton>
         <p style={{ marginTop: "auto", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center", lineHeight: 1.5 }}>
           By continuing you agree to Ridewallah&apos;s Terms of Service and Privacy Policy.
         </p>
@@ -97,32 +88,50 @@ export function PhoneLogin({ title, accent, onSent, social = true }: { title: st
   );
 }
 
-export function OtpStep({ phone, onBack, onVerified }: { phone: string; onBack: () => void; onVerified: () => void }) {
+const OTP_LENGTH = 6;
+
+/** `onVerify` / `onResend` return an error message or null. */
+export function OtpStep({ phone, onBack, onVerify, onResend }: {
+  phone: string; onBack: () => void; onVerify: (code: string) => Promise<string | null>; onResend: () => Promise<string | null>;
+}) {
   const [otp, setOtp] = useState("");
   const [left, setLeft] = useState(30);
   const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState("");
+  // Latest callback without re-running the verify effect when the parent re-renders.
+  const verify = useRef(onVerify);
+  useEffect(() => { verify.current = onVerify; }, [onVerify]);
   useEffect(() => {
     if (left <= 0) return;
     const t = setTimeout(() => setLeft((l) => l - 1), 1000);
     return () => clearTimeout(t);
   }, [left]);
   useEffect(() => {
-    if (otp.length !== 4) return;
-    setChecking(true);
-    const t = setTimeout(onVerified, 700);
-    return () => clearTimeout(t);
-  }, [otp, onVerified]);
+    if (otp.length !== OTP_LENGTH) return;
+    let live = true;
+    setChecking(true); setErr("");
+    verify.current(otp).then((e) => {
+      if (!live || !e) return;
+      setErr(e); setOtp(""); setChecking(false);
+    });
+    return () => { live = false; };
+  }, [otp]);
+  const resend = async () => {
+    setErr("");
+    const e = await onResend();
+    if (e) setErr(e); else setLeft(30);
+  };
   return (
     <Shell onBack={onBack}>
-      <H title="Verify your number" body={`Enter the 4-digit code sent to +91 ${phone.slice(0, 5)} ${phone.slice(5)}`} />
+      <H title="Verify your number" body={`Enter the ${OTP_LENGTH}-digit code sent to +91 ${phone.slice(0, 5)} ${phone.slice(5)}`} />
       <div style={{ padding: "32px 24px 0" }}>
-        <OtpInput value={otp} onChange={setOtp} />
+        <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(""); }} length={OTP_LENGTH} />
+        {err && <p role="alert" style={{ textAlign: "center", margin: "14px 0 0", fontSize: 12.5, color: "var(--red)" }}>{err}</p>}
         <p style={{ textAlign: "center", margin: "22px 0 0", fontSize: 13.5, color: "var(--ink-soft)" }}>
           {checking ? "Verifying…" : left > 0 ? <>Resend code in <b style={{ color: "var(--ink)" }}>0:{String(left).padStart(2, "0")}</b></> : (
-            <button onClick={() => setLeft(30)} style={{ background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Resend OTP</button>
+            <button onClick={resend} style={{ background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Resend OTP</button>
           )}
         </p>
-        <p style={{ textAlign: "center", margin: "8px 0 0", fontSize: 11.5, color: "var(--ink-mute)" }}>Demo: any 4 digits work</p>
       </div>
     </Shell>
   );

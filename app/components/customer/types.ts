@@ -11,6 +11,7 @@ export interface Booking {
   km: number;
   min: number;
   fare: number;       // before discount
+  surge: number;      // peak multiplier baked into `fare` (1 = none)
   coupon: Coupon | null;
   pay: PayMethod;
 }

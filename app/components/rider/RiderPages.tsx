@@ -7,9 +7,10 @@ import {
 import VehicleArt from "../VehicleArt";
 import { Sheet } from "../customer/BookingScreens";
 import { InfoPage } from "../customer/AccountScreens";
-import { COMMISSION, RouteLines } from "./RiderScreens";
+import { RouteLines } from "./RiderScreens";
 import { DemoButton, PageHeader, PrimaryButton, StatusBadge, Stars, Toggle, card, field, label } from "../ui";
-import { PLACES, RIDER_FEEDBACK, inr, type Driver, type Incentive, type Ride, type WalletTxn } from "../../lib/data";
+import { PLACES, inr, type Driver, type Incentive, type Ride, type WalletTxn } from "../../lib/data";
+import type { Feedback } from "../../lib/mappers";
 import { useCatalog } from "../../lib/CatalogProvider";
 
 const row: React.CSSProperties = { ...card, padding: 14, display: "flex", alignItems: "center", gap: 12 };
@@ -93,8 +94,8 @@ export function IncentivesScreen({ progress }: { progress: Record<Incentive["kin
 
 /* ───────────────────────── Ratings & performance ───────────────────────── */
 
-export function PerformancePage({ rider, stats, onBack }: {
-  rider: Driver; stats: { acceptance: number; cancellation: number; accepted: number; declined: number; cancelled: number }; onBack: () => void;
+export function PerformancePage({ rider, stats, feedback, onBack }: {
+  rider: Driver; stats: { acceptance: number; cancellation: number; accepted: number; declined: number; cancelled: number }; feedback: Feedback[]; onBack: () => void;
 }) {
   const dist = [[5, 78], [4, 15], [3, 4], [2, 2], [1, 1]];
   const meter = (l: string, v: number, good: boolean, hint: string) => (
@@ -128,7 +129,8 @@ export function PerformancePage({ rider, stats, onBack }: {
       {meter("Acceptance rate", stats.acceptance, stats.acceptance >= 80, `${stats.accepted} accepted · ${stats.declined} declined or missed. Keep it above 80% for priority dispatch.`)}
       {meter("Cancellation rate", stats.cancellation, stats.cancellation <= 5, `${stats.cancelled} cancelled by you. Stay under 5% to keep incentives.`)}
       <p style={{ margin: "4px 2px 0", fontSize: 13.5, fontWeight: 700 }}>What customers say</p>
-      {RIDER_FEEDBACK.map((f) => (
+      {feedback.length === 0 && <p style={{ ...small, margin: "0 2px" }}>No feedback yet — it shows up here after your first rated trips.</p>}
+      {feedback.map((f) => (
         <div key={f.who + f.at} style={{ ...card, padding: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 13.5, fontWeight: 600 }}>{f.who}</span>
@@ -322,6 +324,7 @@ export function HotspotsPage({ online, onNavigate, onGoOnline, onBack }: { onlin
 /* ───────────────────────── Trip detail ───────────────────────── */
 
 export function TripDetailPage({ ride, onHelp, onBack }: { ride: Ride; onHelp: () => void; onBack: () => void }) {
+  const { commission } = useCatalog();
   const done = ride.status === "Completed";
   return (
     <InfoPage title={`Trip #${ride.id}`} onBack={onBack}>
@@ -333,13 +336,13 @@ export function TripDetailPage({ ride, onHelp, onBack }: { ride: Ride; onHelp: (
         <RouteLines from={ride.from} to={ride.to} />
       </div>
       <div style={{ ...card, padding: "12px 16px" }}>
-        {[["Customer", ride.customer], ["Distance · time", `${ride.km} km · ${ride.min} min`], ["Payment", ride.pay], ...(done ? [["Trip fare", inr(ride.fare)], [`Commission (${COMMISSION * 100}%)`, "− " + inr(ride.fare * COMMISSION)]] : [["Reason", ride.cancelReason ?? "—"]])].map(([l, v]) => (
+        {[["Customer", ride.customer], ["Distance · time", `${ride.km} km · ${ride.min} min`], ["Payment", ride.pay], ...(done ? [["Trip fare", inr(ride.fare)], [`Commission (${Math.round(commission * 100)}%)`, "− " + inr(ride.fare * commission)]] : [["Reason", ride.cancelReason ?? "—"]])].map(([l, v]) => (
           <div key={l} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, padding: "5px 0" }}><span style={{ color: "var(--ink-soft)" }}>{l}</span><span style={{ fontWeight: 600 }}>{v}</span></div>
         ))}
         {done && (
           <>
             <div style={{ borderTop: "1px dashed var(--line-strong)", margin: "6px 0" }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, padding: "4px 0" }}><span>You earned</span><span style={{ color: "var(--success-text)" }}>{inr(ride.fare * (1 - COMMISSION))}</span></div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 700, padding: "4px 0" }}><span>You earned</span><span style={{ color: "var(--success-text)" }}>{inr(ride.fare * (1 - commission))}</span></div>
           </>
         )}
       </div>

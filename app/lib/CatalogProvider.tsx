@@ -3,7 +3,7 @@
 /* Makes the Supabase catalog available to every screen: `const { vehicles, vehicleById } = useCatalog()`. */
 import { createContext, useContext, useMemo } from "react";
 import type { Catalog } from "./catalog";
-import type { VehicleKind } from "./data";
+import { isPeak, type Announcement, type VehicleKind } from "./data";
 
 function build(c: Catalog) {
   const vehicleById = (id: VehicleKind) => c.vehicles.find((v) => v.id === id)!;
@@ -18,6 +18,13 @@ function build(c: Catalog) {
     /** Enabled vehicles that carry parcels. */
     parcelVehicles: c.vehicles.filter((v) => v.enabled && v.parcelMaxKg > 0),
     activeCoupons: c.coupons.filter((x) => x.active),
+    /** Platform commission as a fraction (0.2 = 20%). */
+    commission: c.settings.commissionPct / 100,
+    /** Surge multiplier for a booking made now — 1 outside peak hours or when surge is off. */
+    surgeNow: () => (c.settings.surgeOn && isPeak() ? c.settings.surgeMult : 1),
+    /** Broadcasts meant for customers or for riders. */
+    announcementsFor: (who: "customer" | "rider"): Announcement[] => c.announcements.filter((a) =>
+      who === "customer" ? a.audience === "All customers" || a.audience === "Noida only" : a.audience === "All drivers" || a.audience === "Inactive riders"),
   };
 }
 

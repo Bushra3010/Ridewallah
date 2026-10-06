@@ -11,13 +11,14 @@ import {
 } from "../components/icons";
 import { Avatar, PrimaryButton, StatusBadge, Toggle, card, field, label } from "../components/ui";
 import {
-  NON_AC_DISCOUNT, PARCEL_RATE, WEEK, inr,
-  type Coupon, type Customer, type Driver, type Ride, type Ticket, type Txn, type Vehicle,
+  AUDIENCES, NON_AC_DISCOUNT, PARCEL_RATE, WEEK, inr,
+  type Announcement, type Coupon, type Customer, type Driver, type Ride, type ServiceArea, type Settings, type Ticket, type Txn, type Vehicle,
 } from "../lib/data";
 import type { AdminData } from "../lib/admin-data";
 import { useCatalog } from "../lib/CatalogProvider";
 import {
-  addTicketNote, createCoupon, login, logout, savePricing, setCouponActive, setCustomerBlocked, setTicketStatus, updateDriver, type Result,
+  addTicketNote, createCoupon, login, logout, savePricing, saveSettings, sendAnnouncement, setCouponActive, setCustomerBlocked, setTicketStatus,
+  updateDriver, type Result,
 } from "./actions";
 
 type Section = "dashboard" | "live" | "rides" | "customers" | "drivers" | "pricing" | "coupons" | "payments" | "reports" | "support" | "notify" | "settings";
@@ -48,8 +49,8 @@ export default function AdminApp({ data }: { data: AdminData }) {
   const [coupons, setCoupons] = useState<Coupon[]>(catalog.coupons);
   const [tickets, setTickets] = useState<Ticket[]>(data.tickets);
   const { rides, txns } = data;
-  const [commission, setCommission] = useState(20);
-  const [surge, setSurge] = useState({ on: true, mult: 1.3 });
+  const [settings, setSettings] = useState<Settings>(catalog.settings);
+  const [announcements, setAnnouncements] = useState<Announcement[]>(catalog.announcements);
   const [toast, setToast] = useState<string | null>(null);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2200); };
@@ -107,8 +108,23 @@ export default function AdminApp({ data }: { data: AdminData }) {
         }} />}
         {section === "drivers" && <DriversSection rows={drivers} onUpdate={(id, p, msg) =>
           save(setDrivers, drivers, drivers.map((x) => (x.id === id ? { ...x, ...p } : x)), updateDriver(id, p), msg)} />}
-        {section === "pricing" && <PricingSection vehicles={vehicles} setVehicles={setVehicles} commission={commission} setCommission={setCommission} surge={surge} setSurge={setSurge}
-          onSave={() => save(setVehicles, vehicles, vehicles, savePricing(vehicles), "Pricing saved — applies to new bookings")} />}
+        {section === "pricing" && <PricingSection vehicles={vehicles} setVehicles={setVehicles}
+          commission={settings.commissionPct} setCommission={(n) => setSettings({ ...settings, commissionPct: n })}
+          surge={{ on: settings.surgeOn, mult: settings.surgeMult }} setSurge={(x) => setSettings({ ...settings, surgeOn: x.on, surgeMult: x.mult })}
+          areas={settings.serviceAreas}
+          onToggleArea={(city) => {
+            const serviceAreas = settings.serviceAreas.map((a) => (a.city === city ? { ...a, active: !a.active } : a));
+            const on = serviceAreas.find((a) => a.city === city)?.active;
+            save(setSettings, settings, { ...settings, serviceAreas }, saveSettings({ serviceAreas }), `${city} ${on ? "activated" : "deactivated"}`);
+          }}
+          onSave={async () => {
+            const [a, b] = await Promise.all([
+              savePricing(vehicles),
+              saveSettings({ commissionPct: settings.commissionPct, surgeOn: settings.surgeOn, surgeMult: settings.surgeMult }),
+            ]);
+            const error = a.error ?? b.error;
+            flash(error ? `Couldn't save — ${error}` : "Pricing saved — applies to new bookings");
+          }} />}
         {section === "coupons" && <CouponsSection rows={coupons}
           onCreate={(c) => save(setCoupons, coupons, [c, ...coupons], createCoupon(c), `Coupon ${c.code} created`)}
           onToggle={(code, on) => save(setCoupons, coupons, coupons.map((x) => (x.code === code ? { ...x, active: on } : x)), setCouponActive(code, on), `${code} ${on ? "activated" : "paused"}`)} />}
@@ -117,8 +133,12 @@ export default function AdminApp({ data }: { data: AdminData }) {
         {section === "support" && <SupportSection rows={tickets}
           onStatus={(id, status) => save(setTickets, tickets, tickets.map((t) => (t.id === id ? { ...t, status } : t)), setTicketStatus(id, status), `${id} marked ${status}`)}
           onNote={(id, note) => save(setTickets, tickets, tickets.map((t) => (t.id === id ? { ...t, notes: [...t.notes, note], status: t.status === "Open" ? "In Progress" : t.status } : t)), addTicketNote(id, note), "Note added")} />}
-        {section === "notify" && <NotifySection flash={flash} />}
-        {section === "settings" && <SettingsSection flash={flash} />}
+        {section === "notify" && <NotifySection sent={announcements} onSend={(audience, title, body) => {
+          const draft: Announcement = { id: `new-${Date.now()}`, audience, title, body, at: "Just now" };
+          return save(setAnnouncements, announcements, [draft, ...announcements], sendAnnouncement(audience, title, body), `Notification sent to ${audience.toLowerCase()}`);
+        }} />}
+        {section === "settings" && <SettingsSection settings={settings}
+          onChange={(patch, msg) => save(setSettings, settings, { ...settings, ...patch }, saveSettings(patch), msg)} />}
       </main>
 
       {toast && (
@@ -346,7 +366,7 @@ function RidesTable({ rows, onOpen }: { rows: Ride[]; onOpen: (r: Ride) => void 
 }
 
 function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
-  const { vehicleById, vehicleLabel } = useCatalog();
+  const { vehicleById, vehicleLabel, commission } = useCatalog();
   const v = vehicleById(r.vehicle);
   const dist = Math.round(v.perKm * r.km);
   return (
@@ -373,7 +393,7 @@ function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
         {kv("Time", inr(Math.max(0, r.fare - v.base - dist)))}
         {kv("Discount", "− " + inr(r.discount))}
         {kv("Total", inr(r.fare - r.discount))}
-        {kv("Platform commission", inr((r.fare - r.discount) * 0.2))}
+        {kv("Platform commission", inr((r.fare - r.discount) * commission))}
         {kv("Payment", `${r.pay} · ${r.paid ? "Paid" : "Pending"}`)}
       </div>
     </Drawer>
@@ -555,9 +575,10 @@ function DriversSection({ rows, onUpdate }: { rows: Driver[]; onUpdate: (id: str
 
 /* ───────────────────────── Pricing ───────────────────────── */
 
-function PricingSection({ vehicles, setVehicles, commission, setCommission, surge, setSurge, onSave }: {
+function PricingSection({ vehicles, setVehicles, commission, setCommission, surge, setSurge, areas, onToggleArea, onSave }: {
   vehicles: Vehicle[]; setVehicles: (v: Vehicle[]) => void; commission: number; setCommission: (n: number) => void;
-  surge: { on: boolean; mult: number }; setSurge: (s: { on: boolean; mult: number }) => void; onSave: () => void;
+  surge: { on: boolean; mult: number }; setSurge: (s: { on: boolean; mult: number }) => void;
+  areas: ServiceArea[]; onToggleArea: (city: string) => void; onSave: () => void;
 }) {
   const { parcelWeights } = useCatalog();
   const upd = (id: string, k: keyof Vehicle, v: number | boolean) => setVehicles(vehicles.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
@@ -618,11 +639,12 @@ function PricingSection({ vehicles, setVehicles, commission, setCommission, surg
       </Panel>
       <Panel title="Service areas">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {[["Noida", true], ["Delhi", true], ["Gurugram", true], ["Lucknow", true], ["Ghaziabad", false], ["Faridabad", false]].map(([c, on]) => (
-            <span key={c as string} style={{ display: "flex", alignItems: "center", gap: 8, border: "1.5px solid var(--line)", borderRadius: 12, padding: "8px 12px", fontSize: 13.5, fontWeight: 600 }}>
-              {c as string} <StatusBadge status={on ? "Active" : "Inactive"} />
-            </span>
+          {areas.map(({ city, active }) => (
+            <button key={city} onClick={() => onToggleArea(city)} aria-pressed={active} title={`${active ? "Deactivate" : "Activate"} ${city}`} style={{ display: "flex", alignItems: "center", gap: 8, border: "1.5px solid var(--line)", background: "var(--surface)", cursor: "pointer", borderRadius: 12, padding: "8px 12px", fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>
+              {city} <StatusBadge status={active ? "Active" : "Inactive"} />
+            </button>
           ))}
+          {areas.length === 0 && <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-soft)" }}>No service areas configured.</p>}
         </div>
       </Panel>
     </div>
@@ -707,10 +729,11 @@ function PaymentsSection({ txns }: { txns: Txn[] }) {
 /* ───────────────────────── Reports ───────────────────────── */
 
 function ReportsSection({ rides, flash }: { rides: Ride[]; flash: (m: string) => void }) {
+  const { commission } = useCatalog();
   const [range, setRange] = useState("Last 7 days");
   const exportCsv = () => {
     const head = "Ride,Date,Customer,Driver,Vehicle,Km,Fare,Discount,Commission,Payment,Status";
-    const lines = rides.map((r) => [r.id, r.date, r.customer, r.driver, r.vehicle, r.km, r.fare, r.discount, Math.round((r.fare - r.discount) * 0.2), r.pay, r.status].join(","));
+    const lines = rides.map((r) => [r.id, r.date, r.customer, r.driver, r.vehicle, r.km, r.fare, r.discount, Math.round((r.fare - r.discount) * commission), r.pay, r.status].join(","));
     const url = URL.createObjectURL(new Blob([[head, ...lines].join("\n")], { type: "text/csv" }));
     const a = document.createElement("a"); a.href = url; a.download = "ridewallah-rides-report.csv"; a.click(); URL.revokeObjectURL(url);
     flash("Report exported");
@@ -725,7 +748,7 @@ function ReportsSection({ rides, flash }: { rides: Ride[]; flash: (m: string) =>
       <div className="adm-grid-4">
         <Stat label="Ride revenue" value={compact(totals.rev)} tone="blue" delta="↑ 13%" />
         <Stat label="Total rides" value={totals.rides.toLocaleString("en-IN")} delta="↑ 9%" />
-        <Stat label="Driver earnings" value={compact(totals.rev * 0.8)} />
+        <Stat label="Driver earnings" value={compact(totals.rev * (1 - commission))} />
         <Stat label="Cancellation rate" value="6.7%" tone="red" />
       </div>
       <div className="adm-grid-2">
@@ -790,32 +813,30 @@ function SupportSection({ rows, onStatus, onNote }: { rows: Ticket[]; onStatus: 
 
 /* ───────────────────────── Notifications ───────────────────────── */
 
-function NotifySection({ flash }: { flash: (m: string) => void }) {
-  const [aud, setAud] = useState("All customers");
+function NotifySection({ sent, onSend }: { sent: Announcement[]; onSend: (audience: Announcement["audience"], title: string, body: string) => void }) {
+  const [aud, setAud] = useState<Announcement["audience"]>("All customers");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [sent, setSent] = useState([
-    { t: "Weekend offer 🎉", a: "All customers", at: "27 Sep, 10:00 AM" },
-    { t: "Complete 5 rides, get ₹500", a: "All drivers", at: "28 Sep, 07:00 AM" },
-  ]);
   return (
     <div className="adm-grid-2">
       <Panel title="Broadcast announcement">
         <span style={label}>Audience</span>
-        <div style={{ marginBottom: 14 }}><Chips value={aud} options={["All customers", "All drivers", "Noida only", "Inactive riders"]} onChange={setAud} /></div>
+        <div style={{ marginBottom: 14 }}><Chips value={aud} options={[...AUDIENCES]} onChange={setAud} /></div>
         <label style={label} htmlFor="nt">Title</label>
         <input id="nt" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Diwali rides at 30% off" style={{ ...field, marginBottom: 14 }} />
         <label style={label} htmlFor="nb">Message</label>
         <textarea id="nb" value={body} onChange={(e) => setBody(e.target.value)} rows={4} placeholder="Use code DIWALI30 on your next 3 rides…" style={{ ...field, resize: "none", marginBottom: 18 }} />
-        <PrimaryButton disabled={!title.trim() || !body.trim()} onClick={() => { setSent([{ t: title, a: aud, at: "Just now" }, ...sent]); setTitle(""); setBody(""); flash(`Push notification queued for ${aud.toLowerCase()}`); }}>
+        <PrimaryButton disabled={!title.trim() || !body.trim()} onClick={() => { onSend(aud, title.trim(), body.trim()); setTitle(""); setBody(""); }}>
           <MegaphoneIcon s={17} c="white" /> Send Notification
         </PrimaryButton>
       </Panel>
       <Panel title="Recently sent">
-        {sent.map((s, i) => (
-          <div key={i} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{s.t}</p>
-            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>{s.a} · {s.at}</p>
+        {sent.length === 0 && <p style={{ margin: 0, fontSize: 13, color: "var(--ink-mute)" }}>Nothing sent yet.</p>}
+        {sent.map((s) => (
+          <div key={s.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{s.title}</p>
+            <p style={{ margin: "2px 0 0", fontSize: 12.5, color: "var(--ink)" }}>{s.body}</p>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>{s.audience} · {s.at}</p>
           </div>
         ))}
       </Panel>
@@ -825,9 +846,10 @@ function NotifySection({ flash }: { flash: (m: string) => void }) {
 
 /* ───────────────────────── Settings ───────────────────────── */
 
-function SettingsSection({ flash }: { flash: (m: string) => void }) {
-  const [s, setS] = useState({ cash: true, online: true, scheduled: false, sos: true, autoAssign: true, maintenance: false });
-  const rows: [keyof typeof s, string, string][] = [
+type Flag = "cash" | "online" | "autoAssign" | "sos" | "scheduled" | "maintenance";
+
+function SettingsSection({ settings, onChange }: { settings: Settings; onChange: (patch: Partial<Settings>, msg: string) => void }) {
+  const rows: [Flag, string, string][] = [
     ["cash", "Cash payments", "Let riders pay the driver in cash"],
     ["online", "Online payments", "UPI, cards and wallet through the payment gateway"],
     ["autoAssign", "Auto-assign nearest driver", "Dispatch requests to the closest eligible driver first"],
@@ -841,7 +863,7 @@ function SettingsSection({ flash }: { flash: (m: string) => void }) {
         {rows.map(([k, t, b]) => (
           <div key={k} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
             <div style={{ flex: 1 }}><p style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>{t}</p><p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-soft)" }}>{b}</p></div>
-            <Toggle on={s[k]} onChange={(v) => { setS({ ...s, [k]: v }); flash(`${t} ${v ? "enabled" : "disabled"}`); }} label={t} />
+            <Toggle on={settings[k]} onChange={(v) => onChange({ [k]: v }, `${t} ${v ? "enabled" : "disabled"}`)} label={t} />
           </div>
         ))}
       </Panel>

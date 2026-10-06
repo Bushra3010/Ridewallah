@@ -5,7 +5,7 @@ import BottomNav, { HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph, WalletGlyp
 import { OtpStep, PhoneLogin, SplashScreen } from "../components/Auth";
 import { KycFlow, PendingApproval } from "../components/rider/Kyc";
 import {
-  AlertsScreen, COMMISSION, EarningsScreen, RIDER_ALERTS, RequestPopup, RiderAccount, RiderHome, TripPage, TripsScreen,
+  AlertsScreen, EarningsScreen, RequestPopup, RiderAccount, RiderHome, TripPage, TripsScreen,
   type AccountKey, type QuickKey, type RideRequest, type RiderAlert, type TripPhase,
 } from "../components/rider/RiderScreens";
 import {
@@ -14,11 +14,14 @@ import {
 } from "../components/rider/RiderPages";
 import { ChatScreen, type ChatMessage } from "../components/customer/AccountScreens";
 import { DemoButton, Toast } from "../components/ui";
-import { DRIVERS, RIDER_WALLET, RIDES, inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
+import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
+import { hasSession, loadRider, loadRiderActivity, registerRider, sendOtp, setRiderOnline, signOut, verifyOtp } from "../lib/account";
+import type { Feedback } from "../lib/mappers";
 
 const SHELL_MAX_W = 430;
-const AUTH_KEY = "ridewallah:rider";
+/** How often the "verification in progress" screen re-checks for admin approval. */
+const APPROVAL_POLL_MS = 8000;
 
 type Tab = "home" | "earnings" | "trips" | "incentives" | "account";
 type Stage = "splash" | "phone" | "otp" | "kyc" | "pending" | "app";
@@ -35,18 +38,20 @@ const REQUESTS: Omit<RideRequest, "id">[] = [
   { customer: "Kavya Iyer", initials: "KI", rating: 5.0, from: "Great India Place", to: "Akshardham Temple", pickupKm: 1.6, pickupMin: 4, km: 9.1, min: 28, fare: 246, pay: "UPI" },
 ];
 
-const readRider = () => { try { return localStorage.getItem(AUTH_KEY) === "1"; } catch { return false; } };
-const writeRider = (v: boolean) => { try { if (v) localStorage.setItem(AUTH_KEY, "1"); else localStorage.removeItem(AUTH_KEY); } catch { /* storage blocked */ } };
+/** Placeholder until the signed-in rider's profile loads. */
+const NO_RIDER: Driver = { id: "", name: "", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Pending", online: false, joined: "", earnings: 0 };
+
+const SUSPENDED = "Your rider account is suspended. Please contact rider support.";
 
 let seq = 1300;
 let txSeq = 400;
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
 export default function RiderApp() {
-  const { incentives, vehicleById } = useCatalog();
+  const { incentives, vehicleById, commission, announcementsFor } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
   const [phone, setPhone] = useState("");
-  const [rider, setRider] = useState<Driver>(DRIVERS[0]);
+  const [rider, setRider] = useState<Driver>(NO_RIDER);
   const [tab, setTab] = useState<Tab>("home");
   const [stack, setStack] = useState<Detail[]>([]);
   const [online, setOnline] = useState(false);
@@ -58,10 +63,12 @@ export default function RiderApp() {
   const [peak, setPeak] = useState(1);
   const [stats, setStats] = useState({ accepted: 48, declined: 2, cancelled: 1 });
   const [wallet, setWallet] = useState({ balance: 1840, dues: 36 });
-  const [txns, setTxns] = useState<WalletTxn[]>(RIDER_WALLET);
+  const [txns, setTxns] = useState<WalletTxn[]>([]);
+  const [feedback, setFeedback] = useState<Feedback[]>([]);
   const [prefs, setPrefs] = useState<RiderPrefs>({ autoAccept: false, goHome: null, cash: true, sound: true, nav: "Google Maps", parcels: true, ac: true });
-  const [trips, setTrips] = useState<Ride[]>(RIDES.filter((r) => r.driver === DRIVERS[0].name));
-  const [alerts, setAlerts] = useState<RiderAlert[]>(RIDER_ALERTS);
+  const [trips, setTrips] = useState<Ride[]>([]);
+  // Broadcasts from Admin → Notifications, then alerts raised during this session.
+  const [alerts, setAlerts] = useState<RiderAlert[]>(() => announcementsFor("rider").map((a) => [a.title, a.body, a.at, "policy"]));
   const [unread, setUnread] = useState(2);
   const [chat, setChat] = useState<ChatMessage[]>([{ id: 1, from: "agent", body: "Hi! 👋 How can the rider support team help?", at: "09:00 AM" }]);
   const [typing, setTyping] = useState(false);
@@ -70,11 +77,51 @@ export default function RiderApp() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const reqIdx = useRef(0);
 
-  useEffect(() => {
-    if (!readRider()) return;
-    const t = setTimeout(() => setStage("app"), 1100);
-    return () => clearTimeout(t);
+  /** Signed in → route by KYC status and load the rider's own activity. Returns an error message, or null. */
+  const enter = useCallback(async (): Promise<string | null> => {
+    try {
+      const d = await loadRider();
+      if (!d) { setStage("kyc"); return null; }
+      setRider(d);
+      if (d.kyc !== "Approved") { setStage("pending"); return null; }
+      if (d.suspended) { await signOut(); setStage("splash"); return SUSPENDED; }
+      const a = await loadRiderActivity(d.id);
+      setTrips(a.trips); setTxns(a.wallet); setFeedback(a.feedback);
+      setOnline(d.online);
+      setStage("app");
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "Couldn't load your account";
+    }
   }, []);
+
+  // Returning riders skip login (Supabase keeps the session in this browser).
+  useEffect(() => {
+    let live = true;
+    const shown = Date.now();
+    hasSession().then(async (yes) => {
+      if (!yes || !live) return;
+      await new Promise((r) => setTimeout(r, Math.max(0, 1100 - (Date.now() - shown))));
+      if (!live) return;
+      const err = await enter();
+      if (err) flash(err);
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
+
+  // Waiting for KYC review → re-check until an admin approves.
+  useEffect(() => {
+    if (stage !== "pending") return;
+    const t = setInterval(async () => {
+      const d = await loadRider().catch(() => null);
+      if (!d) return;
+      if (d.kyc === "Approved") { await enter(); flash("You're approved! Go online to start earning 🎉"); }
+      else setRider(d);
+    }, APPROVAL_POLL_MS);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flash is recreated each render
+  }, [stage, enter]);
 
   const detail = stack[stack.length - 1];
   const detailKey = detail ? JSON.stringify(detail) : tab;
@@ -164,8 +211,8 @@ export default function RiderApp() {
     if (!trip) return;
     const { req } = trip;
     const total = req.fare + (req.waitFee ?? 0);
-    const net = Math.round(total * (1 - COMMISSION));
-    const cut = Math.round(total * COMMISSION);
+    const net = Math.round(total * (1 - commission));
+    const cut = Math.round(total * commission);
     const count = today.trips + 1;
     const daily = incentives[0];
 
@@ -175,7 +222,7 @@ export default function RiderApp() {
 
     if (req.pay === "Cash") {
       setWallet((w) => ({ ...w, dues: w.dues + cut }));
-      addTxn("Cash Commission", `Ride ${req.id} · ${COMMISSION * 100}% of ${inr(total)}`, -cut);
+      addTxn("Cash Commission", `Ride ${req.id} · ${Math.round(commission * 100)}% of ${inr(total)}`, -cut);
     } else {
       setWallet((w) => ({ ...w, balance: w.balance + net }));
       addTxn("Trip Earning", `Ride ${req.id} · ${req.pay}`, net);
@@ -226,9 +273,11 @@ export default function RiderApp() {
     }, 1300);
   };
 
-  const toggleOnline = (v: boolean) => {
+  const toggleOnline = async (v: boolean) => {
     setOnline(v);
     if (!v) setRequest(null);
+    const err = await setRiderOnline(rider.id, v);
+    if (err) { setOnline(!v); flash(`Couldn't go ${v ? "online" : "offline"} — ${err}`); return; }
     flash(v ? "You're online — looking for rides" : "You're offline");
   };
 
@@ -239,7 +288,12 @@ export default function RiderApp() {
 
   const openAccount = (k: AccountKey) => push(k === "help" ? { k: "support" } : { k });
 
-  const logout = () => { writeRider(false); setOnline(false); setTrip(null); setStack([]); setTab("home"); setStage("splash"); };
+  const logout = async () => {
+    if (online) await setRiderOnline(rider.id, false);
+    await signOut();
+    setOnline(false); setTrip(null); setStack([]); setTab("home"); setStage("splash");
+    setRider(NO_RIDER); setTrips([]); setTxns([]); setFeedback([]);
+  };
 
   const showNav = stage === "app" && !trip && !detail;
   const acceptance = pct(stats.accepted, stats.accepted + stats.declined);
@@ -250,24 +304,29 @@ export default function RiderApp() {
       <div style={{ width: "100%", maxWidth: SHELL_MAX_W, height: "100%", position: "relative", background: "var(--app-bg)", overflow: "hidden", boxShadow: "var(--shadow-float)", display: "flex", flexDirection: "column" }}>
 
         {stage === "splash" && (
-          <SplashScreen tagline="Drive · Earn · Grow" cta="Start Riding" onStart={() => setStage(readRider() ? "app" : "phone")} />
+          <SplashScreen tagline="Drive · Earn · Grow" cta="Start Riding" onStart={() => setStage("phone")} />
         )}
-        {stage === "phone" && <PhoneLogin title="Welcome, Rider" accent="Let's get you earning" social={false} onSent={(p) => { setPhone(p); setStage("otp"); }} />}
+        {stage === "phone" && <PhoneLogin title="Welcome, Rider" accent="Let's get you earning" onSend={async (p) => {
+          const err = await sendOtp(p);
+          if (!err) { setPhone(p); setStage("otp"); }
+          return err;
+        }} />}
         {stage === "otp" && (
-          <OtpStep phone={phone} onBack={() => setStage("phone")} onVerified={() => setStage("kyc")} />
+          <OtpStep phone={phone} onBack={() => setStage("phone")} onResend={() => sendOtp(phone)}
+            onVerify={async (code) => (await verifyOtp(phone, code)) ?? (await enter())} />
         )}
         {stage === "kyc" && (
-          <>
-            <KycFlow onSubmit={(k) => {
-              setRider({ ...DRIVERS[0], name: k.name, initials: k.name.split(/\s+/).map((s) => s[0]).join("").slice(0, 2).toUpperCase(), vehicle: k.vehicle, model: k.model, plate: k.plate, city: k.city, phone: `+91 ${phone.slice(0, 5)} ${phone.slice(5)}`, trips: 0, rating: 0 });
+          <KycFlow onSubmit={async (k) => {
+            try {
+              setRider(await registerRider({ name: k.name, vehicle: k.vehicle, model: k.model, plate: k.plate, city: k.city }));
               setStage("pending");
-            }} />
-            <div style={{ position: "absolute", top: 20, right: 16, zIndex: 195 }}>
-              <DemoButton onClick={() => { writeRider(true); setStage("app"); }}>skip KYC</DemoButton>
-            </div>
-          </>
+            } catch (e) {
+              const msg = e instanceof Error ? e.message : "Couldn't submit your application";
+              flash(/duplicate|unique/i.test(msg) ? "That vehicle number is already registered" : msg);
+            }
+          }} />
         )}
-        {stage === "pending" && <PendingApproval name={rider.name} onApproved={() => { writeRider(true); setStage("app"); flash("You're approved! Go online to start earning 🎉"); }} />}
+        {stage === "pending" && <PendingApproval name={rider.name} rejected={rider.kyc === "Rejected"} onLogout={logout} />}
 
         {stage === "app" && (detail?.k === "support" ? (
           <div style={{ flex: 1, minHeight: 0 }}>
@@ -291,7 +350,7 @@ export default function RiderApp() {
               <>
                 {detail.k === "alerts" && <AlertsScreen items={alerts} onBack={back} />}
                 {detail.k === "wallet" && <WalletPage balance={wallet.balance} dues={wallet.dues} txns={txns} onWithdraw={withdraw} onPayDues={payDues} onBack={back} />}
-                {detail.k === "performance" && <PerformancePage rider={rider} stats={{ ...stats, acceptance, cancellation }} onBack={back} />}
+                {detail.k === "performance" && <PerformancePage rider={rider} stats={{ ...stats, acceptance, cancellation }} feedback={feedback} onBack={back} />}
                 {detail.k === "hotspots" && <HotspotsPage online={online} onNavigate={navigate} onGoOnline={() => toggleOnline(true)} onBack={back} />}
                 {detail.k === "documents" && <DocumentsPage onBack={back} onUploaded={(d) => flash(`${d} uploaded — we'll verify it within 24 hours`)} />}
                 {detail.k === "vehicle" && <VehiclePage rider={rider} onBack={back} />}

@@ -170,7 +170,7 @@ export function OtpInput({ value, onChange, length = 4 }: { value: string; onCha
         style={{ position: "absolute", inset: 0, opacity: 0, width: "100%" }} />
       {Array.from({ length }).map((_, i) => (
         <span key={i} style={{
-          width: 54, height: 58, borderRadius: 14, background: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center",
+          flex: "0 1 54px", minWidth: 0, height: 58, borderRadius: 14, background: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 22, fontWeight: 700, color: "var(--ink)",
           border: `1.5px solid ${i === value.length ? "var(--blue)" : "var(--line)"}`, boxShadow: "var(--shadow-card)",
         }}>{value[i] ?? ""}</span>
