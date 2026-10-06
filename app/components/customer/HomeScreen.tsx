@@ -7,8 +7,9 @@ import MapView from "../MapView";
 import VehicleArt from "../VehicleArt";
 import ParcelArt from "../ParcelArt";
 import { iconBtn } from "../ui";
-import { CURRENT_LOCATION, PLACES, VEHICLES, type Place, type VehicleKind } from "../../lib/data";
+import { CURRENT_LOCATION, PLACES, type Place, type VehicleKind } from "../../lib/data";
 import type { ActiveRide } from "./types";
+import { useCatalog } from "../../lib/CatalogProvider";
 
 interface HomeProps {
   firstName: string;
@@ -37,6 +38,7 @@ const STATUS_LINE: Record<string, string> = {
 };
 
 export default function HomeScreen(p: HomeProps) {
+  const { vehicles } = useCatalog();
   const quick = PLACES.filter((x) => x.kind);
   return (
     <div style={{ paddingBottom: 24 }}>
@@ -126,7 +128,7 @@ export default function HomeScreen(p: HomeProps) {
         <p style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em" }}>Our Services</p>
       </div>
       <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
-        {VEHICLES.map((v) => (
+        {vehicles.map((v) => (
           <button key={v.id} onClick={() => p.onSearch(v.id)} className="press" style={{
             background: "none", border: "none", padding: 0, cursor: "pointer",
             display: "flex", flexDirection: "column", alignItems: "center", gap: 7,

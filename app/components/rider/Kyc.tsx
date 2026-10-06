@@ -4,7 +4,8 @@ import { useState } from "react";
 import { BackIcon, CheckIcon, ClockIcon, DocIcon, UploadIcon } from "../icons";
 import VehicleArt from "../VehicleArt";
 import { DemoButton, Footer, PrimaryButton, card, field, iconBtn, label } from "../ui";
-import { VEHICLES, type VehicleKind } from "../../lib/data";
+import { type VehicleKind } from "../../lib/data";
+import { useCatalog } from "../../lib/CatalogProvider";
 
 export interface KycData {
   name: string; email: string; city: string;
@@ -25,6 +26,7 @@ const STEPS = ["Personal", "Vehicle", "Documents", "Bank"];
 
 /** Four-step rider registration (PRD §5.1). Uploads are simulated. */
 export function KycFlow({ onSubmit }: { onSubmit: (k: KycData) => void }) {
+  const { vehicles } = useCatalog();
   const [step, setStep] = useState(0);
   const [k, setK] = useState<KycData>({
     name: "", email: "", city: "Noida", vehicle: "sedan", model: "", plate: "",
@@ -79,7 +81,7 @@ export function KycFlow({ onSubmit }: { onSubmit: (k: KycData) => void }) {
             <div>
               <span style={label}>Vehicle category</span>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
-                {VEHICLES.map((v) => {
+                {vehicles.map((v) => {
                   const on = v.id === k.vehicle;
                   return (
                     <button key={v.id} onClick={() => set({ vehicle: v.id })} aria-pressed={on} className="press" style={{ ...card, padding: "10px 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, border: on ? "1.5px solid var(--blue)" : "1.5px solid transparent", background: on ? "var(--blue-tint)" : "var(--surface)" }}>

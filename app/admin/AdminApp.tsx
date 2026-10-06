@@ -10,9 +10,10 @@ import {
 } from "../components/icons";
 import { Avatar, PrimaryButton, StatusBadge, Toggle, card, field, label } from "../components/ui";
 import {
-  COUPONS, CUSTOMERS, DRIVERS, NON_AC_DISCOUNT, PARCEL_RATE, PARCEL_WEIGHTS, RIDES, TICKETS, TXNS, VEHICLES, WEEK, inr, vehicleById, vehicleLabel,
+  CUSTOMERS, DRIVERS, NON_AC_DISCOUNT, PARCEL_RATE, RIDES, TICKETS, TXNS, WEEK, inr,
   type Coupon, type Customer, type Driver, type Ride, type Ticket, type Vehicle,
 } from "../lib/data";
+import { useCatalog } from "../lib/CatalogProvider";
 
 type Section = "dashboard" | "live" | "rides" | "customers" | "drivers" | "pricing" | "coupons" | "payments" | "reports" | "support" | "notify" | "settings";
 
@@ -40,8 +41,9 @@ export default function AdminApp() {
   const [section, setSection] = useState<Section>("dashboard");
   const [drivers, setDrivers] = useState<Driver[]>(DRIVERS);
   const [customers, setCustomers] = useState<Customer[]>(CUSTOMERS);
-  const [vehicles, setVehicles] = useState<Vehicle[]>(VEHICLES);
-  const [coupons, setCoupons] = useState<Coupon[]>(COUPONS);
+  const catalog = useCatalog();
+  const [vehicles, setVehicles] = useState<Vehicle[]>(catalog.vehicles);
+  const [coupons, setCoupons] = useState<Coupon[]>(catalog.coupons);
   const [tickets, setTickets] = useState<Ticket[]>(TICKETS);
   const [commission, setCommission] = useState(20);
   const [surge, setSurge] = useState({ on: true, mult: 1.3 });
@@ -254,6 +256,7 @@ function AdminLogin({ onLogin }: { onLogin: () => void }) {
 /* ───────────────────────── Dashboard ───────────────────────── */
 
 function Dashboard({ drivers, pending, open, go }: { drivers: Driver[]; pending: number; open: number; go: (s: Section) => void }) {
+  const { vehicleById } = useCatalog();
   const onlineNow = drivers.filter((d) => d.online && !d.suspended).length;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -292,6 +295,7 @@ function Dashboard({ drivers, pending, open, go }: { drivers: Driver[]; pending:
 /* ───────────────────────── Rides ───────────────────────── */
 
 function RidesTable({ rows, onOpen }: { rows: Ride[]; onOpen: (r: Ride) => void }) {
+  const { vehicleLabel } = useCatalog();
   return (
     <div className="adm-table-wrap">
       <table className="adm-table">
@@ -316,6 +320,7 @@ function RidesTable({ rows, onOpen }: { rows: Ride[]; onOpen: (r: Ride) => void 
 }
 
 function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
+  const { vehicleById, vehicleLabel } = useCatalog();
   const v = vehicleById(r.vehicle);
   const dist = Math.round(v.perKm * r.km);
   return (
@@ -350,6 +355,7 @@ function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
 }
 
 function RidesSection() {
+  const { vehicles, vehicleById } = useCatalog();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("All");
   const [veh, setVeh] = useState("All");
@@ -367,7 +373,7 @@ function RidesSection() {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginBottom: 14 }}>
         <SearchBox value={q} onChange={setQ} placeholder="Search ride, customer, driver…" />
         <Chips value={status} options={["All", "Ongoing", "Completed", "Cancelled"]} onChange={setStatus} />
-        <Chips value={veh} options={["All", ...VEHICLES.map((v) => v.name)]} onChange={setVeh} />
+        <Chips value={veh} options={["All", ...vehicles.map((v) => v.name)]} onChange={setVeh} />
         <Chips value={kind} options={["Rides & Parcels", "Rides", "Parcels"]} onChange={setKind} />
         <Chips value={ac} options={["AC & Non-AC", "AC", "Non-AC"]} onChange={setAc} />
       </div>
@@ -448,6 +454,7 @@ function CustomersSection({ rows, onToggle }: { rows: Customer[]; onToggle: (id:
 /* ───────────────────────── Drivers ───────────────────────── */
 
 function DriversSection({ rows, onUpdate }: { rows: Driver[]; onUpdate: (id: string, p: Partial<Driver>, msg: string) => void }) {
+  const { vehicleById } = useCatalog();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("All");
   const [open, setOpen] = useState<string | null>(null);
@@ -526,6 +533,7 @@ function PricingSection({ vehicles, setVehicles, commission, setCommission, surg
   vehicles: Vehicle[]; setVehicles: (v: Vehicle[]) => void; commission: number; setCommission: (n: number) => void;
   surge: { on: boolean; mult: number }; setSurge: (s: { on: boolean; mult: number }) => void; onSave: () => void;
 }) {
+  const { parcelWeights } = useCatalog();
   const upd = (id: string, k: keyof Vehicle, v: number | boolean) => setVehicles(vehicles.map((x) => (x.id === id ? { ...x, [k]: v } : x)));
   const num: React.CSSProperties = { ...field, width: 84, padding: "7px 10px", fontSize: 13 };
   const cols: [keyof Vehicle, string][] = [["base", "Base ₹"], ["perKm", "₹ / km"], ["perMin", "₹ / min"], ["minFare", "Min fare ₹"], ["cancelFee", "Cancel fee ₹"]];
@@ -574,7 +582,7 @@ function PricingSection({ vehicles, setVehicles, commission, setCommission, surg
           Parcels are charged {Math.round(PARCEL_RATE * 100)}% of the ride fare plus a weight charge. Vehicles with “AC / Non-AC” on are also listed as Non-AC at {Math.round(NON_AC_DISCOUNT * 100)}% off. Set a vehicle&apos;s parcel max to 0 to stop parcels on it.
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {PARCEL_WEIGHTS.map((w) => (
+          {parcelWeights.map((w) => (
             <div key={w.id} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "10px 14px", minWidth: 120 }}>
               <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-soft)" }}>{w.label}</p>
               <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{w.extra ? `+ ${inr(w.extra)}` : "No charge"}</p>

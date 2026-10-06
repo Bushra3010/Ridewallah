@@ -8,13 +8,15 @@ import {
 import { BrandMark } from "../Brand";
 import VehicleArt from "../VehicleArt";
 import { Avatar, PageHeader, StatusBadge, Tabs, card, iconBtn } from "../ui";
-import { COUPONS, discountFor, inr, vehicleById, vehicleLabel, type Ride } from "../../lib/data";
+import { discountFor, inr, type Ride } from "../../lib/data";
 import ParcelArt from "../ParcelArt";
 import { AcPill } from "./BookingScreens";
+import { useCatalog } from "../../lib/CatalogProvider";
 
 /* ───────────────────────── My rides ───────────────────────── */
 
 export function RidesScreen({ rides, onBack, onOpen, onBook }: { rides: Ride[]; onBack?: () => void; onOpen: (r: Ride) => void; onBook: () => void }) {
+  const { vehicleById } = useCatalog();
   const [tab, setTab] = useState<"past" | "upcoming">("past");
   const [kind, setKind] = useState<"all" | "ride" | "parcel">("all");
   const rows = (tab === "past" ? rides.filter((r) => r.status !== "Scheduled") : rides.filter((r) => r.status === "Scheduled"))
@@ -74,6 +76,7 @@ export function RidesScreen({ rides, onBack, onOpen, onBook }: { rides: Ride[]; 
 /* ───────────────────────── Receipt ───────────────────────── */
 
 export function RideDetailPage({ ride, onBack, onHelp }: { ride: Ride; onBack: () => void; onHelp: () => void }) {
+  const { vehicleById, vehicleLabel } = useCatalog();
   const v = vehicleById(ride.vehicle);
   const dist = Math.round(v.perKm * ride.km);
   const time = Math.max(0, ride.fare - v.base - dist);
@@ -143,6 +146,7 @@ export function RideDetailPage({ ride, onBack, onHelp }: { ride: Ride; onBack: (
 /* ───────────────────────── Offers ───────────────────────── */
 
 export function OffersScreen({ onBack, onUse }: { onBack?: () => void; onUse: (code: string) => void }) {
+  const { activeCoupons } = useCatalog();
   return (
     <div>
       <PageHeader title="Offers & Coupons" onBack={onBack} />
@@ -155,7 +159,7 @@ export function OffersScreen({ onBack, onUse }: { onBack?: () => void; onUse: (c
           </div>
           <GiftIcon s={48} c="var(--gold)" w={1.5} />
         </div>
-        {COUPONS.filter((c) => c.active).map((c) => (
+        {activeCoupons.map((c) => (
           <div key={c.code} style={{ ...card, display: "flex", overflow: "hidden" }}>
             <div style={{ width: 84, background: "linear-gradient(160deg,var(--gold),var(--gold-dark))", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "var(--blue-dark)", position: "relative" }}>
               <span style={{ fontSize: 22, fontWeight: 800, lineHeight: 1 }}>{c.pct ? `${c.off}%` : `₹${c.off}`}</span>

@@ -1,5 +1,6 @@
-/* Sample data shared by the Customer app, Driver app and Admin panel.
- * Stand-ins until the REST API from the PRD is live — every screen reads through these shapes. */
+/* Shared types, pricing helpers and sample data for the Customer app, Rider app and Admin panel.
+ * The catalog (vehicles, parcel weights, coupons, hotspots, incentives) lives in Supabase — see lib/catalog.ts.
+ * Everything else here is still sample data until those screens move to Supabase too. */
 
 export type VehicleKind = "bike" | "auto" | "mini" | "sedan" | "suv";
 
@@ -19,24 +20,8 @@ export interface Vehicle {
   parcelMaxKg: number; // heaviest parcel this vehicle carries (0 = no parcels)
 }
 
-export const VEHICLES: Vehicle[] = [
-  { id: "bike",  name: "Bike",  tagline: "Beat the traffic",       seats: 1, base: 20, perKm: 6,  perMin: 1,   minFare: 30,  cancelFee: 15, eta: 2, enabled: true, acOption: false, parcelMaxKg: 10 },
-  { id: "auto",  name: "Auto",  tagline: "No bargaining",          seats: 3, base: 30, perKm: 10, perMin: 1.5, minFare: 45,  cancelFee: 20, eta: 4, enabled: true, acOption: false, parcelMaxKg: 50 },
-  { id: "mini",  name: "Mini",  tagline: "Compact hatchbacks",      seats: 4, base: 45, perKm: 12, perMin: 2,   minFare: 80,  cancelFee: 30, eta: 5, enabled: true, acOption: true,  parcelMaxKg: 100 },
-  { id: "sedan", name: "Sedan", tagline: "Comfy rides, extra legroom", seats: 4, base: 60, perKm: 15, perMin: 2, minFare: 110, cancelFee: 40, eta: 6, enabled: true, acOption: true,  parcelMaxKg: 0 },
-  { id: "suv",   name: "SUV",   tagline: "Room for 6 + luggage",    seats: 6, base: 90, perKm: 20, perMin: 2.5, minFare: 160, cancelFee: 50, eta: 8, enabled: true, acOption: true,  parcelMaxKg: 0 },
-];
-
-export const vehicleById = (id: VehicleKind) => VEHICLES.find((v) => v.id === id)!;
-
 /** Non-AC cars are priced this much below the AC fare. */
 export const NON_AC_DISCOUNT = 0.15;
-
-/** "Sedan · AC", "Mini · Non-AC" — or just "Bike" for vehicles without an AC choice. */
-export const vehicleLabel = (id: VehicleKind, ac?: boolean) => {
-  const v = vehicleById(id);
-  return v.acOption && ac !== undefined ? `${v.name} · ${ac ? "AC" : "Non-AC"}` : v.name;
-};
 
 /* ───────────── Parcel delivery ───────────── */
 
@@ -44,16 +29,8 @@ export type Service = "ride" | "parcel";
 
 export const PARCEL_TYPES = ["Documents", "Food", "Clothes", "Electronics", "Groceries", "Medicines", "Other"] as const;
 
-export interface ParcelWeight { id: string; label: string; kg: number; extra: number }
-
 /** Weight slabs — `extra` is the handling charge added on top of the distance fare. */
-export const PARCEL_WEIGHTS: ParcelWeight[] = [
-  { id: "w1", label: "Up to 1 kg", kg: 1, extra: 0 },
-  { id: "w5", label: "1 – 5 kg", kg: 5, extra: 10 },
-  { id: "w10", label: "5 – 10 kg", kg: 10, extra: 25 },
-  { id: "w20", label: "10 – 20 kg", kg: 20, extra: 45 },
-  { id: "w50", label: "20 – 50 kg", kg: 50, extra: 80 },
-];
+export interface ParcelWeight { id: string; label: string; kg: number; extra: number }
 
 /** Parcels ride 10% cheaper than people (no waiting, no seat), plus the weight charge. */
 export const PARCEL_RATE = 0.9;
@@ -65,8 +42,6 @@ export interface ParcelInfo {
   receiverPhone: string;
   note?: string;
 }
-
-export const PARCEL_VEHICLES = () => VEHICLES.filter((v) => v.enabled && v.parcelMaxKg > 0);
 
 export interface Place { id: string; name: string; address: string; kind?: "home" | "work" | "recent" }
 
@@ -101,13 +76,6 @@ export function parcelFareFor(v: Vehicle, km: number, min: number, w: ParcelWeig
 }
 
 export interface Coupon { code: string; title: string; body: string; off: number; pct?: boolean; max?: number; expires: string; uses?: number; active?: boolean }
-
-export const COUPONS: Coupon[] = [
-  { code: "FIRST50", title: "50% off your first ride", body: "Up to ₹100 off on any vehicle", off: 50, pct: true, max: 100, expires: "31 Oct 2026", uses: 1284, active: true },
-  { code: "AUTO20", title: "Flat ₹20 off on Auto", body: "Valid on Auto rides above ₹80", off: 20, expires: "15 Oct 2026", uses: 642, active: true },
-  { code: "WEEKEND", title: "15% off weekend rides", body: "Sat & Sun · up to ₹75 off", off: 15, pct: true, max: 75, expires: "30 Nov 2026", uses: 311, active: true },
-  { code: "AIRPORT99", title: "₹99 off airport drops", body: "Sedan & SUV to IGI Airport", off: 99, expires: "31 Dec 2026", uses: 87, active: false },
-];
 
 export function discountFor(c: Coupon | null, fare: number) {
   if (!c) return 0;
@@ -230,21 +198,8 @@ export const TXNS: Txn[] = [
 /** High-demand zones shown to riders who are online. */
 export interface Hotspot { id: string; area: string; km: number; surge: number; waiting: number }
 
-export const HOTSPOTS: Hotspot[] = [
-  { id: "hs1", area: "Sector 18 Market, Noida", km: 1.4, surge: 1.5, waiting: 23 },
-  { id: "hs2", area: "Botanical Garden Metro", km: 2.1, surge: 1.3, waiting: 17 },
-  { id: "hs3", area: "Great India Place", km: 2.8, surge: 1.2, waiting: 11 },
-  { id: "hs4", area: "Film City, Sector 16A", km: 3.5, surge: 1.1, waiting: 6 },
-];
-
 /** Incentive programmes. `kind` decides which counter moves the progress bar. */
 export interface Incentive { id: string; title: string; body: string; target: number; reward: number; kind: "today" | "week" | "peak"; ends: string }
-
-export const INCENTIVES: Incentive[] = [
-  { id: "in1", title: "Daily Target", body: "Complete 5 trips today", target: 5, reward: 500, kind: "today", ends: "Ends 11:59 PM" },
-  { id: "in2", title: "Peak Hour Hero", body: "3 trips between 6 PM – 9 PM", target: 3, reward: 250, kind: "peak", ends: "Today, 6 – 9 PM" },
-  { id: "in3", title: "Weekly Streak", body: "Complete 60 trips this week", target: 60, reward: 2000, kind: "week", ends: "Ends Sun, 5 Oct" },
-];
 
 export type WalletKind = "Trip Earning" | "Cash Commission" | "Incentive" | "Payout" | "Dues Paid";
 

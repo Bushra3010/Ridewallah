@@ -9,7 +9,8 @@ import { BrandMark, Wordmark } from "../Brand";
 import MapView from "../MapView";
 import VehicleArt from "../VehicleArt";
 import { Avatar, OtpInput, PageHeader, PrimaryButton, Stars, StatusBadge, Tabs, Toggle, card, iconBtn } from "../ui";
-import { HOTSPOTS, INCENTIVES, inr, vehicleById, WEEK, type Driver, type ParcelInfo, type Ride, type Service } from "../../lib/data";
+import { inr, WEEK, type Driver, type ParcelInfo, type Ride, type Service } from "../../lib/data";
+import { useCatalog } from "../../lib/CatalogProvider";
 
 /** Platform commission on every fare. */
 export const COMMISSION = 0.2;
@@ -72,8 +73,9 @@ export function RiderHome({ rider, online, onToggle, today, wallet, goHome, onOp
   today: { earnings: number; trips: number; minutes: number }; wallet: number; goHome: string | null;
   onOpenEarnings: () => void; onAlerts: () => void; onQuick: (k: QuickKey) => void; onClearGoHome: () => void; unread: number;
 }) {
+  const { hotspots, incentives, vehicleById } = useCatalog();
   const h = Math.floor(today.minutes / 60), m = today.minutes % 60;
-  const daily = INCENTIVES[0];
+  const daily = incentives[0];
   return (
     <div style={{ paddingBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px" }}>
@@ -118,7 +120,7 @@ export function RiderHome({ rider, online, onToggle, today, wallet, goHome, onOp
             <NavIcon s={14} c="var(--blue)" />
             <span style={{ fontSize: 12, fontWeight: 600 }}>GPS · Sector 12, Noida</span>
           </div>
-          {online && <button onClick={() => onQuick("hotspots")} style={{ position: "absolute", right: 12, bottom: 12, background: "var(--ink)", color: "white", border: "none", cursor: "pointer", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, fontWeight: 600 }}>🔥 {HOTSPOTS[0].surge}x demand · {HOTSPOTS[0].km} km away</button>}
+          {online && <button onClick={() => onQuick("hotspots")} style={{ position: "absolute", right: 12, bottom: 12, background: "var(--ink)", color: "white", border: "none", cursor: "pointer", borderRadius: 999, padding: "5px 11px", fontSize: 11.5, fontWeight: 600 }}>🔥 {hotspots[0].surge}x demand · {hotspots[0].km} km away</button>}
         </MapView>
       </div>
 
@@ -529,6 +531,7 @@ const MENU: { k: AccountKey; label: string; Icon: typeof HelpIcon }[] = [
 export function RiderAccount({ rider, stats, onMenu, onLogout }: {
   rider: Driver; stats: { acceptance: number; cancellation: number }; onMenu: (k: AccountKey) => void; onLogout: () => void;
 }) {
+  const { vehicleById } = useCatalog();
   return (
     <div style={{ paddingBottom: 12 }}>
       <PageHeader title="My Account" />

@@ -12,10 +12,8 @@ import {
 import type { ActiveRide, Booking } from "../components/customer/types";
 import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
-import {
-  COUPONS, DRIVERS, MY_RIDES, PLACES, USER, discountFor, inr, nowTime,
-  type Place, type Ride, type Service, type VehicleKind,
-} from "../lib/data";
+import { DRIVERS, MY_RIDES, PLACES, USER, discountFor, inr, nowTime, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
+import { useCatalog } from "../lib/CatalogProvider";
 
 const SHELL_MAX_W = 430;
 const AUTH_KEY = "ridewallah:customer";
@@ -54,6 +52,7 @@ function autoReply(body: string) {
 }
 
 export default function CustomerApp() {
+  const { coupons, activeCoupons } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
   const [phone, setPhone] = useState("");
   const [user, setUser] = useState<Rider>(USER);
@@ -222,7 +221,7 @@ export default function CustomerApp() {
             {/* ── Booking flow ── */}
             {detail?.k === "search" && (
               <SearchPage initialTo={detail.to} service={detail.service} onBack={back} onDone={(from, to) => {
-                const coupon = COUPONS.find((c) => c.code === pendingCoupon) ?? null;
+                const coupon = coupons.find((c) => c.code === pendingCoupon) ?? null;
                 const service = detail.service ?? "ride";
                 setBooking({ service, from, to, vehicle: detail.prefer ?? (service === "parcel" ? "bike" : "mini"), ac: true, km: 0, min: 0, fare: 0, coupon, pay: "UPI" });
                 push({ k: service === "parcel" ? "parcel" : "choose" });
@@ -275,7 +274,7 @@ export default function CustomerApp() {
             {!detail && tab === "profile" && (
               <ProfileScreen
                 user={user}
-                stats={{ rides: rides.filter((r) => r.status === "Completed").length, saved: 2, coupons: COUPONS.filter((c) => c.active).length }}
+                stats={{ rides: rides.filter((r) => r.status === "Completed").length, saved: 2, coupons: activeCoupons.length }}
                 onMenu={(key) => push(key === "rides" ? { k: "rides" } : key === "help" ? { k: "chat" } : { k: "info", key })}
                 onLogout={logout}
                 onDelete={() => flash("Deletion request sent — we'll confirm by SMS within 48 hours")}

@@ -9,10 +9,8 @@ import { Sheet } from "../customer/BookingScreens";
 import { InfoPage } from "../customer/AccountScreens";
 import { COMMISSION, RouteLines } from "./RiderScreens";
 import { DemoButton, PageHeader, PrimaryButton, StatusBadge, Stars, Toggle, card, field, label } from "../ui";
-import {
-  HOTSPOTS, INCENTIVES, PLACES, RIDER_FEEDBACK, inr, vehicleById,
-  type Driver, type Incentive, type Ride, type WalletTxn,
-} from "../../lib/data";
+import { PLACES, RIDER_FEEDBACK, inr, type Driver, type Incentive, type Ride, type WalletTxn } from "../../lib/data";
+import { useCatalog } from "../../lib/CatalogProvider";
 
 const row: React.CSSProperties = { ...card, padding: 14, display: "flex", alignItems: "center", gap: 12 };
 const small: React.CSSProperties = { margin: "2px 0 0", fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.5 };
@@ -58,7 +56,8 @@ export function WalletPage({ balance, dues, txns, onWithdraw, onPayDues, onBack 
 /* ───────────────────────── Incentives ───────────────────────── */
 
 export function IncentivesScreen({ progress }: { progress: Record<Incentive["kind"], number> }) {
-  const total = INCENTIVES.reduce((s, i) => s + (progress[i.kind] >= i.target ? i.reward : 0), 0);
+  const { incentives } = useCatalog();
+  const total = incentives.reduce((s, i) => s + (progress[i.kind] >= i.target ? i.reward : 0), 0);
   return (
     <div>
       <PageHeader title="Incentives" sub="Hit targets, earn bonuses" />
@@ -68,7 +67,7 @@ export function IncentivesScreen({ progress }: { progress: Record<Incentive["kin
           <p style={{ margin: "2px 0 0", fontSize: 30, fontWeight: 800 }}>{inr(total)}</p>
           <p style={{ margin: "4px 0 0", fontSize: 12 }}>Bonuses are credited to your wallet when each target is met.</p>
         </div>
-        {INCENTIVES.map((i) => {
+        {incentives.map((i) => {
           const done = Math.min(progress[i.kind], i.target);
           const hit = done >= i.target;
           return (
@@ -181,6 +180,7 @@ export function DocumentsPage({ onBack, onUploaded }: { onBack: () => void; onUp
 }
 
 export function VehiclePage({ rider, onBack }: { rider: Driver; onBack: () => void }) {
+  const { vehicleById } = useCatalog();
   const v = vehicleById(rider.vehicle);
   return (
     <InfoPage title="Vehicle Details" onBack={onBack}>
@@ -232,6 +232,7 @@ export function BankPage({ onBack, onSaved }: { onBack: () => void; onSaved: () 
 export interface RiderPrefs { autoAccept: boolean; goHome: string | null; cash: boolean; sound: boolean; nav: "Google Maps" | "In-app"; parcels: boolean; ac: boolean }
 
 export function PreferencesPage({ prefs, vehicle, onChange, onBack }: { prefs: RiderPrefs; vehicle: Driver["vehicle"]; onChange: (p: Partial<RiderPrefs>) => void; onBack: () => void }) {
+  const { vehicleById } = useCatalog();
   const v = vehicleById(vehicle);
   const homes = PLACES.filter((p) => p.kind === "home" || p.kind === "work");
   const switchRow = (t: string, b: string, on: boolean, set: (v: boolean) => void) => (
@@ -296,11 +297,12 @@ export function ReferPage({ code, onShare, onBack }: { code: string; onShare: ()
 /* ───────────────────────── Hotspots ───────────────────────── */
 
 export function HotspotsPage({ online, onNavigate, onGoOnline, onBack }: { online: boolean; onNavigate: (area: string) => void; onGoOnline: () => void; onBack: () => void }) {
+  const { hotspots } = useCatalog();
   return (
     <InfoPage title="Demand Hotspots" onBack={onBack}>
       <p style={{ ...small, margin: 0 }}>Live demand around you. Surge fares apply to rides that start in these zones.</p>
       {!online && <PrimaryButton onClick={onGoOnline} style={{ background: "linear-gradient(135deg,#34c38f,var(--green))" }}>Go online to get these rides</PrimaryButton>}
-      {HOTSPOTS.map((h) => (
+      {hotspots.map((h) => (
         <div key={h.id} style={row}>
           <span style={iconTile(h.surge >= 1.4 ? "var(--error)" : h.surge >= 1.2 ? "var(--warning)" : "var(--gold-tint)")}><BoltIcon s={20} c={h.surge >= 1.4 ? "var(--red)" : "var(--gold-dark)"} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>

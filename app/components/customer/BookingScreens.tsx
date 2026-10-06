@@ -10,11 +10,10 @@ import VehicleArt from "../VehicleArt";
 import ParcelArt from "../ParcelArt";
 import { Avatar, DemoButton, Footer, PageHeader, PrimaryButton, Stars, StatusBadge, card, field, iconBtn } from "../ui";
 import {
-  COUPONS, CURRENT_LOCATION, NON_AC_DISCOUNT, PARCEL_RATE, PARCEL_TYPES, PARCEL_VEHICLES, PARCEL_WEIGHTS, PLACES, RIDE_STEPS, VEHICLES,
-  discountFor, fareFor, inr, parcelFareFor, tripEstimate, vehicleById, vehicleLabel,
-  type Coupon, type ParcelInfo, type PayMethod, type Place, type Service, type VehicleKind,
+  CURRENT_LOCATION, NON_AC_DISCOUNT, PARCEL_RATE, PARCEL_TYPES, PLACES, RIDE_STEPS, discountFor, fareFor, inr, parcelFareFor, tripEstimate, type Coupon, type ParcelInfo, type PayMethod, type Place, type Service, type Vehicle, type VehicleKind,
 } from "../../lib/data";
 import type { ActiveRide, Booking } from "./types";
+import { useCatalog } from "../../lib/CatalogProvider";
 
 const dot = (color: string, square = false): React.CSSProperties => ({
   width: 10, height: 10, borderRadius: square ? 2 : "50%", background: color, flexShrink: 0,
@@ -116,8 +115,8 @@ type AcFilter = "All" | "AC" | "Non-AC";
 /** One row in the ride list — AC-optional cars appear twice (AC and Non-AC). */
 interface RideOption { id: VehicleKind; ac: boolean; key: string }
 
-const rideOptions = (filter: AcFilter): RideOption[] =>
-  VEHICLES.filter((x) => x.enabled).flatMap((x) => {
+const rideOptions = (vehicles: Vehicle[], filter: AcFilter): RideOption[] =>
+  vehicles.filter((x) => x.enabled).flatMap((x) => {
     const rows = x.acOption ? [true, false] : [false];
     return rows
       .filter((ac) => filter === "All" || (filter === "AC" ? ac && x.acOption : !ac))
@@ -139,11 +138,12 @@ export function ChooseRidePage({ from, to, prefer, preferAc = true, onBack, onNe
   from: Place; to: Place; prefer?: VehicleKind; preferAc?: boolean; onBack: () => void;
   onNext: (b: Pick<Booking, "vehicle" | "ac" | "km" | "min" | "fare">) => void;
 }) {
+  const { vehicles, vehicleById, vehicleLabel } = useCatalog();
   const { km, min } = tripEstimate(from.id, to.id);
   const [filter, setFilter] = useState<AcFilter>("All");
   const first = prefer ?? "mini";
   const [sel, setSel] = useState<string>(`${first}:${vehicleById(first).acOption ? preferAc : false}`);
-  const options = rideOptions(filter);
+  const options = rideOptions(vehicles, filter);
   const picked = options.find((o) => o.key === sel) ?? options[0];
   const v = vehicleById(picked.id);
   const fare = fareFor(v, km, min, 1, picked.ac);
@@ -214,14 +214,15 @@ export function ParcelPage({ from, to, initial, onBack, onNext }: {
   from: Place; to: Place; initial?: ParcelInfo; onBack: () => void;
   onNext: (b: Pick<Booking, "vehicle" | "ac" | "km" | "min" | "fare" | "parcel">) => void;
 }) {
+  const { parcelWeights, parcelVehicles } = useCatalog();
   const { km, min } = tripEstimate(from.id, to.id);
   const [type, setType] = useState<ParcelInfo["type"]>(initial?.type ?? "Documents");
-  const [weightId, setWeightId] = useState(PARCEL_WEIGHTS.find((w) => w.label === initial?.weight)?.id ?? PARCEL_WEIGHTS[0].id);
+  const [weightId, setWeightId] = useState(parcelWeights.find((w) => w.label === initial?.weight)?.id ?? parcelWeights[0].id);
   const [receiver, setReceiver] = useState(initial?.receiver ?? "");
   const [phone, setPhone] = useState(initial?.receiverPhone.replace(/\D/g, "").slice(-10) ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
-  const weight = PARCEL_WEIGHTS.find((w) => w.id === weightId)!;
-  const fits = PARCEL_VEHICLES().filter((v) => v.parcelMaxKg >= weight.kg);
+  const weight = parcelWeights.find((w) => w.id === weightId)!;
+  const fits = parcelVehicles.filter((v) => v.parcelMaxKg >= weight.kg);
   const [vid, setVid] = useState<VehicleKind>("bike");
   const vehicle = fits.find((v) => v.id === vid) ?? fits[0];
   const fare = parcelFareFor(vehicle, km, min, weight);
@@ -258,14 +259,14 @@ export function ParcelPage({ from, to, initial, onBack, onNext }: {
         <div>
           {h("Approx. weight")}
           <div className="no-scroll" style={{ display: "flex", gap: 8, overflowX: "auto" }}>
-            {PARCEL_WEIGHTS.map((w) => <button key={w.id} onClick={() => setWeightId(w.id)} aria-pressed={weightId === w.id} style={chip(weightId === w.id)}>{w.label}</button>)}
+            {parcelWeights.map((w) => <button key={w.id} onClick={() => setWeightId(w.id)} aria-pressed={weightId === w.id} style={chip(weightId === w.id)}>{w.label}</button>)}
           </div>
         </div>
 
         <div>
           {h("Delivery vehicle")}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {PARCEL_VEHICLES().map((v) => {
+            {parcelVehicles.map((v) => {
               const ok = v.parcelMaxKg >= weight.kg;
               const on = ok && v.id === vehicle.id;
               return (
@@ -319,6 +320,7 @@ const PAYS: { id: PayMethod; label: string; sub: string; Icon: typeof CardIcon }
 ];
 
 export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; onBack: () => void; onConfirm: (coupon: Coupon | null, pay: PayMethod) => void }) {
+  const { coupons, activeCoupons, parcelWeights, vehicleById, vehicleLabel } = useCatalog();
   const [pay, setPay] = useState<PayMethod>(booking.pay);
   const [coupon, setCoupon] = useState<Coupon | null>(booking.coupon);
   const [code, setCode] = useState("");
@@ -331,12 +333,12 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
   const standard = fareFor(v, booking.km, booking.min);
   const distanceFare = Math.round(v.perKm * booking.km);
   const timeFare = Math.max(0, standard - v.base - distanceFare);
-  const weightCharge = isParcel ? PARCEL_WEIGHTS.find((w) => w.label === booking.parcel?.weight)?.extra ?? 0 : 0;
+  const weightCharge = isParcel ? parcelWeights.find((w) => w.label === booking.parcel?.weight)?.extra ?? 0 : 0;
   const adjust = isParcel ? standard - Math.round(standard * PARCEL_RATE) : standard - booking.fare;
   const label = isParcel ? `${v.name} delivery` : vehicleLabel(v.id, v.acOption ? booking.ac : undefined);
 
   const apply = (c?: Coupon) => {
-    const hit = c ?? COUPONS.find((x) => x.code === code.trim().toUpperCase() && x.active);
+    const hit = c ?? coupons.find((x) => x.code === code.trim().toUpperCase() && x.active);
     if (!hit) { setErr("That code isn't valid right now."); return; }
     setCoupon(hit); setErr(""); setCode("");
   };
@@ -391,7 +393,7 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
               </form>
               {err && <p style={{ margin: "6px 2px 0", fontSize: 12, color: "var(--error-text)" }}>{err}</p>}
               <div className="no-scroll" style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 10 }}>
-                {COUPONS.filter((c) => c.active).map((c) => (
+                {activeCoupons.map((c) => (
                   <button key={c.code} onClick={() => apply(c)} className="press" style={{ flexShrink: 0, textAlign: "left", border: "1.5px dashed var(--gold)", background: "var(--gold-tint)", borderRadius: 12, padding: "8px 12px", cursor: "pointer" }}>
                     <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: "var(--gold-dark)" }}>{c.code}</span>
                     <span style={{ display: "block", fontSize: 11, color: "var(--ink-soft)" }}>{c.title}</span>
@@ -459,6 +461,7 @@ const CANCEL_REASONS = ["Driver taking too long", "Changed my plans", "Booked by
 export function LiveRidePage({ ride, onBack, onCancel, onChat, onDemoNext, onShare }: {
   ride: ActiveRide; onBack: () => void; onCancel: (reason: string) => void; onChat: () => void; onDemoNext: () => void; onShare: () => void;
 }) {
+  const { vehicleById, vehicleLabel } = useCatalog();
   const [asking, setAsking] = useState(false);
   const step = RIDE_STEPS.indexOf(ride.status);
   const v = vehicleById(ride.vehicle);

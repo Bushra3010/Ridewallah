@@ -14,7 +14,8 @@ import {
 } from "../components/rider/RiderPages";
 import { ChatScreen, type ChatMessage } from "../components/customer/AccountScreens";
 import { DemoButton, Toast } from "../components/ui";
-import { DRIVERS, INCENTIVES, RIDER_WALLET, RIDES, inr, nowTime, vehicleById, type Driver, type Ride, type WalletTxn } from "../lib/data";
+import { DRIVERS, RIDER_WALLET, RIDES, inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
+import { useCatalog } from "../lib/CatalogProvider";
 
 const SHELL_MAX_W = 430;
 const AUTH_KEY = "ridewallah:rider";
@@ -42,6 +43,7 @@ let txSeq = 400;
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
 export default function RiderApp() {
+  const { incentives, vehicleById } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
   const [phone, setPhone] = useState("");
   const [rider, setRider] = useState<Driver>(DRIVERS[0]);
@@ -105,7 +107,7 @@ export default function RiderApp() {
     const ac = !parcel && v.acOption ? prefs.ac : undefined;
     const fare = ac === false ? Math.round(r.fare * 0.85) : r.fare;
     setRequest({ ...r, fare, ac, id: `${parcel ? "PD" : "RD"}${++seq}` });
-  }, [prefs.cash, prefs.parcels, prefs.ac, rider.vehicle]);
+  }, [prefs.cash, prefs.parcels, prefs.ac, rider.vehicle, vehicleById]);
   useEffect(() => {
     if (!online || request || trip || stage !== "app") return;
     const t = setTimeout(sendRequest, 4500);
@@ -165,7 +167,7 @@ export default function RiderApp() {
     const net = Math.round(total * (1 - COMMISSION));
     const cut = Math.round(total * COMMISSION);
     const count = today.trips + 1;
-    const daily = INCENTIVES[0];
+    const daily = incentives[0];
 
     setToday((d) => ({ ...d, earnings: d.earnings + net, trips: count }));
     setWeek((w) => w + 1);
