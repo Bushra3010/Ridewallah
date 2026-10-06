@@ -38,6 +38,11 @@ const NO_USER: Customer = { id: "", name: "", initials: "", phone: "", email: ""
 
 const BLOCKED = "This account has been blocked. Please contact support@ridewallah.in.";
 
+/** The AC / Non-AC choice on the home screen is remembered on this device. */
+const AC_KEY = "ridewallah:prefer-ac";
+const readAc = () => { try { return localStorage.getItem(AC_KEY) !== "0"; } catch { return true; } };
+const writeAc = (on: boolean) => { try { localStorage.setItem(AC_KEY, on ? "1" : "0"); } catch { /* storage blocked */ } };
+
 let seq = 1290;
 
 /** Canned support replies until the real support backend is wired up. */
@@ -60,6 +65,8 @@ export default function CustomerApp() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [active, setActive] = useState<ActiveRide | null>(null);
   const [rides, setRides] = useState<Ride[]>([]);
+  const [preferAc, setPreferAc] = useState(true);
+  useEffect(() => { setPreferAc(readAc()); }, []);
   const [chat, setChat] = useState<ChatMessage[]>([
     { id: 1, from: "agent", body: "Hi! 👋 Welcome to Ridewallah support. How can we help you today?", at: "10:02 AM" },
   ]);
@@ -260,7 +267,7 @@ export default function CustomerApp() {
               <SearchPage initialTo={detail.to} service={detail.service} onBack={back} onDone={(from, to) => {
                 const coupon = coupons.find((c) => c.code === pendingCoupon) ?? null;
                 const service = detail.service ?? "ride";
-                setBooking({ service, from, to, vehicle: detail.prefer ?? (service === "parcel" ? "bike" : "mini"), ac: true, km: 0, min: 0, fare: 0, surge: 1, coupon, pay: settings.online ? "UPI" : "Cash" });
+                setBooking({ service, from, to, vehicle: detail.prefer ?? (service === "parcel" ? "bike" : "mini"), ac: preferAc, km: 0, min: 0, fare: 0, surge: 1, coupon, pay: settings.online ? "UPI" : "Cash" });
                 push({ k: service === "parcel" ? "parcel" : "choose" });
               }} />
             )}
@@ -302,6 +309,7 @@ export default function CustomerApp() {
               <HomeScreen
                 firstName={firstName} active={active} unread={unread}
                 onSearch={(prefer) => startBooking(undefined, prefer)}
+                ac={preferAc} onAcChange={(on) => { setPreferAc(on); writeAc(on); }}
                 onParcel={() => startBooking(undefined, undefined, "parcel")}
                 onQuick={(to) => startBooking(to)}
                 onTrack={() => push(active?.status === "Completed" ? { k: "done" } : { k: "live" })}

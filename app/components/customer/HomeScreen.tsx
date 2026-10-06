@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, BellIcon, BriefcaseIcon, ChevronRight, ClockIcon, HomeIcon, SearchIcon, ShieldIcon, TargetIcon } from "../icons";
+import { ArrowRight, BellIcon, BriefcaseIcon, ChevronRight, ClockIcon, HomeIcon, SearchIcon, ShieldIcon, SnowIcon, TargetIcon } from "../icons";
 import { BrandMark, Wordmark } from "../Brand";
 import MapView from "../MapView";
 import VehicleArt from "../VehicleArt";
@@ -10,6 +10,7 @@ import ParcelArt from "../ParcelArt";
 import { iconBtn } from "../ui";
 import { CURRENT_LOCATION, PLACES, type Place, type VehicleKind } from "../../lib/data";
 import type { ActiveRide } from "./types";
+import { AcPill } from "./BookingScreens";
 import { useCatalog } from "../../lib/CatalogProvider";
 
 interface HomeProps {
@@ -17,6 +18,9 @@ interface HomeProps {
   active: ActiveRide | null;
   unread: number;
   onSearch: (prefer?: VehicleKind) => void;
+  /** AC preference for cars that come both ways — carried into the ride list. */
+  ac: boolean;
+  onAcChange: (ac: boolean) => void;
   onParcel: () => void;
   onQuick: (to: Place) => void;
   onTrack: () => void;
@@ -124,21 +128,37 @@ export default function HomeScreen(p: HomeProps) {
       )}
 
       {/* ── Ride categories ── */}
-      <div style={{ padding: "22px 16px 0" }}>
-        <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 500 }}>Pick your ride</p>
-        <p style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em" }}>Our Services</p>
+      <div style={{ padding: "22px 16px 0", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-soft)", fontWeight: 500 }}>Pick your ride</p>
+          <p style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em" }}>Our Services</p>
+        </div>
+        {vehicles.some((v) => v.acOption) && (
+          <div role="radiogroup" aria-label="AC preference for cars" style={{ display: "flex", background: "var(--bg-secondary)", borderRadius: 999, padding: 3 }}>
+            {[true, false].map((on) => (
+              <button key={String(on)} role="radio" aria-checked={p.ac === on} onClick={() => p.onAcChange(on)} style={{
+                border: "none", cursor: "pointer", borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 600,
+                background: p.ac === on ? "var(--surface)" : "transparent", color: p.ac === on ? "var(--blue)" : "var(--ink-soft)",
+                boxShadow: p.ac === on ? "var(--shadow-sm)" : "none", display: "flex", alignItems: "center", gap: 4,
+              }}>{on && <SnowIcon s={12} c={p.ac ? "var(--blue)" : "var(--ink-soft)"} />}{on ? "AC" : "Non-AC"}</button>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
         {vehicles.map((v) => (
-          <button key={v.id} onClick={() => p.onSearch(v.id)} className="press" style={{
+          <button key={v.id} onClick={() => p.onSearch(v.id)} className="press" aria-label={v.acOption ? `${v.name} · ${p.ac ? "AC" : "Non-AC"}` : v.name} style={{
             background: "none", border: "none", padding: 0, cursor: "pointer",
             display: "flex", flexDirection: "column", alignItems: "center", gap: 7,
           }}>
             <div style={{
-              width: "100%", maxWidth: 66, aspectRatio: "1 / 1", background: "var(--surface)", borderRadius: "28%",
+              position: "relative", width: "100%", maxWidth: 66, aspectRatio: "1 / 1", background: "var(--surface)", borderRadius: "28%",
               display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 6px 10px -2px rgba(15,23,41,0.16), 0 2px 4px rgba(15,23,41,0.06)",
-            }}><VehicleArt kind={v.id} size={48} /></div>
+            }}>
+              <VehicleArt kind={v.id} size={48} />
+              {v.acOption && <span style={{ position: "absolute", bottom: -7, left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap" }}><AcPill ac={p.ac} /></span>}
+            </div>
             <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--ink)" }}>{v.name}</span>
           </button>
         ))}
