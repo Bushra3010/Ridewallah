@@ -1,28 +1,48 @@
-/* Customer & rider accounts in the browser: phone OTP sign-in plus loading the signed-in person's own data.
+/* Customer & rider accounts in the browser: email + password sign-in plus loading the signed-in person's own data.
  * Everything here runs with the anon key + the user's session, so row-level security decides what comes back. */
 import { supabase } from "./supabase/client";
-import { RIDE_SELECT, e164, prettyPhone, toCustomer, toDriver, toFeedback, toRide, toWalletTxn, type Feedback } from "./mappers";
+import { RIDE_SELECT, prettyPhone, toCustomer, toDriver, toFeedback, toRide, toWalletTxn, type Feedback } from "./mappers";
 import type { Customer, Driver, Ride, VehicleKind, WalletTxn } from "./data";
 
 /** Supabase's messages, reworded where a customer would otherwise see jargon. */
 function friendly(message: string) {
-  if (/provider|phone.*(disabled|not enabled)|unsupported/i.test(message)) return "Phone sign-in isn't set up yet. Please try again later.";
-  if (/expired|invalid.*(otp|token)|token.*(invalid|expired)/i.test(message)) return "That code is wrong or has expired.";
+  if (/invalid login credentials/i.test(message)) return "Wrong email or password.";
+  if (/already registered|already been registered|user already exists/i.test(message)) return "An account with this email already exists — please log in.";
+  if (/email not confirmed/i.test(message)) return "Please confirm your email first — check your inbox for the link.";
+  if (/password should be|weak password/i.test(message)) return "Choose a stronger password (at least 8 characters).";
+  if (/unable to validate email|invalid email|email address .* is invalid/i.test(message)) return "Please enter a valid email address.";
   if (/rate limit|too many|security purposes/i.test(message)) return "Too many attempts — please wait a minute and try again.";
+  if (/customers_phone_key|drivers_phone_key/i.test(message)) return "This mobile number is already registered with another account.";
+  if (/drivers_plate_key/i.test(message)) return "That vehicle number is already registered.";
   return message;
 }
 
 /* ───────── Sign-in ───────── */
 
-/** Returns an error message, or null when the SMS was sent. */
-export async function sendOtp(phone: string) {
-  const { error } = await supabase.auth.signInWithOtp({ phone: e164(phone) });
+export interface SignUp { name: string; email: string; phone: string; password: string }
+
+/** Creates the login (name and mobile ride along as metadata for later profile steps). Returns an error message, or null. */
+export async function signUp(p: SignUp) {
+  const { data, error } = await supabase.auth.signUp({
+    email: p.email.trim(), password: p.password,
+    options: { data: { name: p.name.trim(), phone: prettyPhone(p.phone) } },
+  });
+  if (error) return friendly(error.message);
+  // With "Confirm email" switched on, Supabase returns no session until the link is clicked.
+  if (!data.session) return "Check your email to confirm your account, then log in.";
+  return null;
+}
+
+export async function signIn(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
   return error ? friendly(error.message) : null;
 }
 
-export async function verifyOtp(phone: string, code: string) {
-  const { error } = await supabase.auth.verifyOtp({ phone: e164(phone), token: code, type: "sms" });
-  return error ? friendly(error.message) : null;
+/** Name, email and mobile given at sign-up — used to prefill profile and KYC steps. */
+export async function signUpDetails() {
+  const { data } = await supabase.auth.getUser();
+  const m = data.user?.user_metadata ?? {};
+  return { name: String(m.name ?? ""), email: data.user?.email ?? "", phone: String(m.phone ?? "") };
 }
 
 export async function hasSession() {
@@ -35,24 +55,13 @@ export async function signOut() {
 }
 
 async function uid() {
-  return (await me()).id;
-}
-
-/** The signed-in user and their verified phone, formatted like stored phones ("+91 98765 43210"). */
-async function me() {
   const { data } = await supabase.auth.getUser();
   if (!data.user) throw new Error("Not signed in");
-  return { id: data.user.id, phone: prettyPhone((data.user.phone ?? "").replace(/\D/g, "").slice(-10)) };
-}
-
-/** Picks up any profile created for this phone before sign-up (seed data or added by an admin). */
-async function claim() {
-  const { error } = await supabase.rpc("claim_profiles");
-  if (error) throw new Error(error.message);
+  return data.user.id;
 }
 
 const check = <T,>(res: { data: T; error: { message: string } | null }) => {
-  if (res.error) throw new Error(res.error.message);
+  if (res.error) throw new Error(friendly(res.error.message));
   return res.data;
 };
 /** Like check, for list queries — an empty result is []. */
@@ -62,15 +71,15 @@ const list = <T,>(res: { data: T[] | null; error: { message: string } | null }) 
 
 /** The signed-in customer's profile, or null if they haven't set one up yet. */
 export async function loadCustomer(): Promise<Customer | null> {
-  await claim();
   const row = check(await supabase.from("customers").select("*").eq("user_id", await uid()).maybeSingle());
   return row ? toCustomer(row) : null;
 }
 
-export async function createCustomer(p: { name: string; email: string }): Promise<Customer> {
-  const u = await me();
+/** `phone` is the 10-digit mobile number. */
+export async function createCustomer(p: { name: string; email: string; phone: string }): Promise<Customer> {
   const row = check(await supabase.from("customers")
-    .insert({ user_id: u.id, name: p.name, email: p.email || null, phone: u.phone }).select().single());
+    .insert({ user_id: await uid(), name: p.name.trim(), email: p.email.trim() || null, phone: prettyPhone(p.phone.replace(/\D/g, "").slice(-10)) })
+    .select().single());
   return toCustomer(row);
 }
 
@@ -82,17 +91,17 @@ export async function loadCustomerRides(customerId: string): Promise<Ride[]> {
 /* ───────── Riders ───────── */
 
 export async function loadRider(): Promise<Driver | null> {
-  await claim();
   const row = check(await supabase.from("drivers").select("*").eq("user_id", await uid()).maybeSingle());
   if (!row) return null;
   const rides = list(await supabase.from("rides").select("driver_id, status, fare, discount").eq("driver_id", row.id));
   return toDriver(row, rides);
 }
 
-export async function registerRider(k: { name: string; vehicle: VehicleKind; model: string; plate: string; city: string }): Promise<Driver> {
-  const u = await me();
+/** `phone` is the mobile number from sign-up, in either "9876543210" or "+91 98765 43210" form. */
+export async function registerRider(k: { name: string; email: string; phone: string; vehicle: VehicleKind; model: string; plate: string; city: string }): Promise<Driver> {
+  if (k.phone.replace(/\D/g, "").length < 10) throw new Error("Your mobile number is missing — please contact rider support.");
   const row = check(await supabase.from("drivers").insert({
-    user_id: u.id, name: k.name, phone: u.phone, vehicle: k.vehicle, model: k.model, plate: k.plate.toUpperCase(), city: k.city,
+    user_id: await uid(), name: k.name.trim(), email: k.email.trim() || null, phone: prettyPhone(k.phone.replace(/\D/g, "").slice(-10)), vehicle: k.vehicle, model: k.model, plate: k.plate.toUpperCase(), city: k.city,
   }).select().single());
   return toDriver(row);
 }

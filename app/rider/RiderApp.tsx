@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav, { HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph, WalletGlyph } from "../components/BottomNav";
-import { OtpStep, PhoneLogin, SplashLink, SplashScreen } from "../components/Auth";
+import { EmailLogin, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import { KycFlow, PendingApproval } from "../components/rider/Kyc";
 import {
   AlertsScreen, EarningsScreen, RequestPopup, RiderAccount, RiderHome, TripPage, TripsScreen,
@@ -16,7 +16,7 @@ import { ChatScreen, type ChatMessage } from "../components/customer/AccountScre
 import { DemoButton, Toast } from "../components/ui";
 import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { hasSession, loadRider, loadRiderActivity, registerRider, sendOtp, setRiderOnline, signOut, verifyOtp } from "../lib/account";
+import { hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 import type { Feedback } from "../lib/mappers";
 
 const SHELL_MAX_W = 430;
@@ -24,7 +24,7 @@ const SHELL_MAX_W = 430;
 const APPROVAL_POLL_MS = 8000;
 
 type Tab = "home" | "earnings" | "trips" | "incentives" | "account";
-type Stage = "splash" | "phone" | "otp" | "kyc" | "pending" | "app";
+type Stage = "splash" | "login" | "signup" | "kyc" | "pending" | "app";
 type Detail =
   | { k: "alerts" } | { k: "support" } | { k: "trip"; id: string }
   | { k: "wallet" } | { k: "performance" } | { k: "hotspots" }
@@ -50,9 +50,8 @@ const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 export default function RiderApp() {
   const { incentives, vehicleById, commission, announcementsFor } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
-  const [phone, setPhone] = useState("");
-  /** Login and sign-up share the phone → OTP flow; this only changes the wording and the welcome message. */
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  /** Name, email and mobile from sign-up — prefill KYC and go on the rider record. */
+  const [signup, setSignup] = useState({ name: "", email: "", phone: "" });
   const [rider, setRider] = useState<Driver>(NO_RIDER);
   const [tab, setTab] = useState<Tab>("home");
   const [stack, setStack] = useState<Detail[]>([]);
@@ -83,8 +82,7 @@ export default function RiderApp() {
   const enter = useCallback(async (): Promise<string | null> => {
     try {
       const d = await loadRider();
-      if (!d) { setStage("kyc"); return null; }
-      if (mode === "signup") flash(`You're already registered — welcome back, ${d.name.split(" ")[0]}!`);
+      if (!d) { setSignup(await signUpDetails()); setStage("kyc"); return null; }
       setRider(d);
       if (d.kyc !== "Approved") { setStage("pending"); return null; }
       if (d.suspended) { await signOut(); setStage("splash"); return SUSPENDED; }
@@ -96,8 +94,7 @@ export default function RiderApp() {
     } catch (e) {
       return e instanceof Error ? e.message : "Couldn't load your account";
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- flash is stable
-  }, [mode]);
+  }, []);
 
   // Returning riders skip login (Supabase keeps the session in this browser).
   useEffect(() => {
@@ -308,36 +305,27 @@ export default function RiderApp() {
       <div style={{ width: "100%", maxWidth: SHELL_MAX_W, height: "100%", position: "relative", background: "var(--app-bg)", overflow: "hidden", boxShadow: "var(--shadow-float)", display: "flex", flexDirection: "column" }}>
 
         {stage === "splash" && (
-          <SplashScreen tagline="Drive · Earn · Grow" cta="Log in" onStart={() => { setMode("login"); setStage("phone"); }}
-            footer={<SplashLink prompt="New rider?" cta="Create an account" onClick={() => { setMode("signup"); setStage("phone"); }} />} />
+          <SplashScreen tagline="Drive · Earn · Grow" cta="Log in" onStart={() => setStage("login")}
+            footer={<SplashLink prompt="New rider?" cta="Create an account" onClick={() => setStage("signup")} />} />
         )}
-        {stage === "phone" && <PhoneLogin
-          {...(mode === "signup" ? {
-            title: "Become a", accent: "Ridewallah rider", cta: "Continue",
-            body: "Sign up with your mobile number. Next you'll add your vehicle, documents and bank details for approval.",
-            switchTo: { prompt: "Already registered?", cta: "Log in", onClick: () => setMode("login") },
-          } : {
-            title: "Welcome, Rider", accent: "Let's get you earning",
-            switchTo: { prompt: "New rider?", cta: "Create an account", onClick: () => setMode("signup") },
-          })}
-          onSend={async (p) => {
-          const err = await sendOtp(p);
-          if (!err) { setPhone(p); setStage("otp"); }
-          return err;
-        }} />}
-        {stage === "otp" && (
-          <OtpStep phone={phone} onBack={() => setStage("phone")} onResend={() => sendOtp(phone)}
-            onVerify={async (code) => (await verifyOtp(phone, code)) ?? (await enter())} />
+        {stage === "login" && (
+          <EmailLogin title="Welcome, Rider" accent="Let's get you earning"
+            switchTo={{ prompt: "New rider?", cta: "Create an account", onClick: () => setStage("signup") }}
+            onSubmit={async (email, password) => (await signIn(email, password)) ?? (await enter())} />
+        )}
+        {stage === "signup" && (
+          <SignUpForm title="Become a" accent="Ridewallah rider" cta="Create account & continue"
+            body="Create your account, then add your vehicle, documents and bank details for approval."
+            switchTo={{ prompt: "Already registered?", cta: "Log in", onClick: () => setStage("login") }}
+            onSubmit={async (d) => (await signUp(d)) ?? (await enter())} />
         )}
         {stage === "kyc" && (
-          <KycFlow onSubmit={async (k) => {
+          <KycFlow initial={signup} onSubmit={async (k) => {
             try {
-              setRider(await registerRider({ name: k.name, vehicle: k.vehicle, model: k.model, plate: k.plate, city: k.city }));
-              setMode("login"); // registered now — later checks are plain sign-ins
+              setRider(await registerRider({ name: k.name, email: k.email, phone: signup.phone, vehicle: k.vehicle, model: k.model, plate: k.plate, city: k.city }));
               setStage("pending");
             } catch (e) {
-              const msg = e instanceof Error ? e.message : "Couldn't submit your application";
-              flash(/duplicate|unique/i.test(msg) ? "That vehicle number is already registered" : msg);
+              flash(e instanceof Error ? e.message : "Couldn't submit your application");
             }
           }} />
         )}

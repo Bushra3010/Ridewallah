@@ -20,8 +20,6 @@ export function ist(iso: string) {
 
 export const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
-/** "9876543210" → "+919876543210" (what Supabase Auth expects). */
-export const e164 = (tenDigits: string) => `+91${tenDigits}`;
 /** "9876543210" → "+91 98765 43210" (how phones are stored and shown). */
 export const prettyPhone = (tenDigits: string) => `+91 ${tenDigits.slice(0, 5)} ${tenDigits.slice(5)}`;
 

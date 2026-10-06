@@ -25,11 +25,12 @@ const DOCS = [
 const STEPS = ["Personal", "Vehicle", "Documents", "Bank"];
 
 /** Four-step rider registration (PRD §5.1). Uploads are simulated. */
-export function KycFlow({ onSubmit }: { onSubmit: (k: KycData) => void }) {
+/** `initial` prefills name and email from sign-up. */
+export function KycFlow({ initial, onSubmit }: { initial?: { name: string; email: string }; onSubmit: (k: KycData) => void }) {
   const { vehicles } = useCatalog();
   const [step, setStep] = useState(0);
   const [k, setK] = useState<KycData>({
-    name: "", email: "", city: "Noida", vehicle: "sedan", model: "", plate: "",
+    name: initial?.name ?? "", email: initial?.email ?? "", city: "Noida", vehicle: "sedan", model: "", plate: "",
     docs: {}, upi: "", account: "", ifsc: "",
   });
   const set = (p: Partial<KycData>) => setK((x) => ({ ...x, ...p }));

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import BottomNav, { ChatGlyph, HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph } from "../components/BottomNav";
-import { OtpStep, PermissionStep, PhoneLogin, ProfileSetup, SplashLink, SplashScreen } from "../components/Auth";
+import { EmailLogin, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import HomeScreen from "../components/customer/HomeScreen";
 import { ChooseRidePage, ConfirmPage, LiveRidePage, ParcelPage, SearchPage, TripDonePage } from "../components/customer/BookingScreens";
 import {
@@ -14,12 +14,12 @@ import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
 import { DRIVERS, PLACES, discountFor, inr, nowTime, type Customer, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { createCustomer, hasSession, loadCustomer, loadCustomerRides, sendOtp, signOut, verifyOtp } from "../lib/account";
+import { createCustomer, hasSession, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 
 const SHELL_MAX_W = 430;
 
 type Tab = "home" | "rides" | "offers" | "support" | "profile";
-type Stage = "splash" | "phone" | "otp" | "setup" | "perm" | "app";
+type Stage = "splash" | "login" | "signup" | "setup" | "perm" | "app";
 
 type Detail =
   | { k: "search"; to?: Place; prefer?: VehicleKind; service?: Service }
@@ -58,9 +58,8 @@ function autoReply(body: string) {
 export default function CustomerApp() {
   const { coupons, activeCoupons, settings } = useCatalog();
   const [stage, setStage] = useState<Stage>("splash");
-  const [phone, setPhone] = useState("");
-  /** Login and sign-up share the phone → OTP flow; this only changes the wording and the welcome message. */
-  const [mode, setMode] = useState<"login" | "signup">("login");
+  /** Prefill for the profile step, from what was given at sign-up. */
+  const [setupInitial, setSetupInitial] = useState({ name: "", phone: "" });
   const [user, setUser] = useState<Customer>(NO_USER);
   const [tab, setTab] = useState<Tab>("home");
   const [stack, setStack] = useState<Detail[]>([]);
@@ -83,9 +82,8 @@ export default function CustomerApp() {
   const enter = async (afterSetup = false): Promise<string | null> => {
     try {
       const c = await loadCustomer();
-      if (!c) { setStage("setup"); return null; }
+      if (!c) { const d = await signUpDetails(); setSetupInitial({ name: d.name, phone: d.phone }); setStage("setup"); return null; }
       if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
-      if (mode === "signup" && !afterSetup) flash(`You already have an account — welcome back, ${c.name.split(" ")[0]}!`);
       setUser(c);
       setRides(await loadCustomerRides(c.id));
       setStage(afterSetup ? "perm" : "app");
@@ -232,36 +230,32 @@ export default function CustomerApp() {
       <div style={{ width: "100%", maxWidth: SHELL_MAX_W, height: "100%", position: "relative", background: "var(--app-bg)", overflow: "hidden", boxShadow: "var(--shadow-float)", display: "flex", flexDirection: "column" }}>
 
         {stage === "splash" && (
-          <SplashScreen tagline="Ride · Reach · Relax" cta="Log in" onStart={() => { setMode("login"); setStage("phone"); }}
-            footer={<SplashLink prompt="New to Ridewallah?" cta="Create an account" onClick={() => { setMode("signup"); setStage("phone"); }} />} />
+          <SplashScreen tagline="Ride · Reach · Relax" cta="Log in" onStart={() => setStage("login")}
+            footer={<SplashLink prompt="New to Ridewallah?" cta="Create an account" onClick={() => setStage("signup")} />} />
         )}
-        {stage === "phone" && <PhoneLogin
-          {...(mode === "signup" ? {
-            title: "Create your", accent: "Ridewallah account", cta: "Continue",
-            body: "Enter your mobile number to get started. We'll verify it with a one-time password.",
-            switchTo: { prompt: "Already have an account?", cta: "Log in", onClick: () => setMode("login") },
-          } : {
-            title: "Welcome to", accent: "Ridewallah",
-            switchTo: { prompt: "New to Ridewallah?", cta: "Create an account", onClick: () => setMode("signup") },
-          })}
-          onSend={async (p) => {
-          const err = await sendOtp(p);
-          if (!err) { setPhone(p); setStage("otp"); }
-          return err;
-        }} />}
-        {stage === "otp" && (
-          <OtpStep phone={phone} onBack={() => setStage("phone")} onResend={() => sendOtp(phone)}
-            onVerify={async (code) => (await verifyOtp(phone, code)) ?? (await enter())} />
+        {stage === "login" && (
+          <EmailLogin title="Welcome to" accent="Ridewallah"
+            switchTo={{ prompt: "New to Ridewallah?", cta: "Create an account", onClick: () => setStage("signup") }}
+            onSubmit={async (email, password) => (await signIn(email, password)) ?? (await enter())} />
+        )}
+        {stage === "signup" && (
+          <SignUpForm title="Create your" accent="Ridewallah account" body="Book rides and parcels in a few taps. Your mobile number lets drivers reach you."
+            switchTo={{ prompt: "Already have an account?", cta: "Log in", onClick: () => setStage("login") }}
+            onSubmit={async (d) => {
+              const err = await signUp(d);
+              if (err) return err;
+              try { await createCustomer(d); } catch (e) { return e instanceof Error ? e.message : "Couldn't create your profile"; }
+              return enter(true);
+            }} />
         )}
         {stage === "setup" && (
-          <ProfileSetup onDone={async ({ name, email }) => {
+          <ProfileSetup initial={setupInitial} onDone={async ({ name, phone }) => {
             try {
-              await createCustomer({ name, email });
-              const err = await enter(true);
-              if (err) flash(err);
+              await createCustomer({ name, phone, email: (await signUpDetails()).email });
             } catch (e) {
-              flash(e instanceof Error ? e.message : "Couldn't create your account");
+              return e instanceof Error ? e.message : "Couldn't create your profile";
             }
+            return enter(true);
           }} />
         )}
         {stage === "perm" && <PermissionStep onDone={() => setStage("app")} />}

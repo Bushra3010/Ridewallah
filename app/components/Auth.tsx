@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { ArrowRight, BackIcon, BellIcon, PinIcon, CheckIcon } from "./icons";
-import { OtpInput, PrimaryButton, card, field, iconBtn, label } from "./ui";
+import { PrimaryButton, card, field, iconBtn, label } from "./ui";
 
 /** Brand splash — royal blue with the white Ridewallah logo. */
 export function SplashScreen({ tagline, cta = "Get Started", onStart, footer }: {
@@ -64,114 +64,139 @@ const H = ({ title, accent, body }: { title: string; accent?: string; body: stri
   </div>
 );
 
-/** Mobile number → SMS one-time password (Supabase phone auth). `onSend` returns an error message or null.
- * Used for both logging in and creating an account — `switchTo` flips between the two. */
-export function PhoneLogin({ title, accent, body = "Enter your mobile number. We'll send you a one-time password.", cta = "Get OTP", switchTo, onSend }: {
-  title: string; accent: string; body?: string; cta?: string;
-  switchTo?: { prompt: string; cta: string; onClick: () => void };
-  onSend: (phone: string) => Promise<string | null>;
-}) {
-  const [phone, setPhone] = useState("");
+type SwitchTo = { prompt: string; cta: string; onClick: () => void };
+
+const Switch = ({ to }: { to?: SwitchTo }) => to ? (
+  <p style={{ margin: 0, textAlign: "center", fontSize: 13.5, color: "var(--ink-soft)" }}>
+    {to.prompt}{" "}
+    <button type="button" onClick={to.onClick} style={{ background: "none", border: "none", padding: 0, color: "var(--blue)", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>{to.cta}</button>
+  </p>
+) : null;
+
+const Terms = () => (
+  <p style={{ marginTop: "auto", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center", lineHeight: 1.5 }}>
+    By continuing you agree to Ridewallah&apos;s Terms of Service and Privacy Policy.
+  </p>
+);
+
+const Err = ({ msg }: { msg: string }) => msg ? <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "var(--red)" }}>{msg}</p> : null;
+
+/** Password field with a show/hide toggle. */
+function PasswordInput({ id, value, onChange, autoComplete }: { id: string; value: string; onChange: (v: string) => void; autoComplete: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ ...field, display: "flex", alignItems: "center", gap: 8, padding: "4px 6px 4px 14px" }}>
+      <input id={id} type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete}
+        placeholder="••••••••" style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontSize: 15, padding: "10px 0", color: "var(--ink)" }} />
+      <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? "Hide password" : "Show password"}
+        style={{ background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 12.5, cursor: "pointer", padding: "6px 8px" }}>{show ? "Hide" : "Show"}</button>
+    </div>
+  );
+}
+
+/** 10-digit Indian mobile number with a fixed +91 prefix. */
+function MobileInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ ...field, display: "flex", alignItems: "center", gap: 10, padding: "4px 14px" }}>
+      <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)", borderRight: "1.5px solid var(--line)", paddingRight: 10 }}>🇮🇳 +91</span>
+      <input id="phone" value={value} inputMode="numeric" autoComplete="tel-national" placeholder="98765 43210"
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 10))}
+        style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontSize: 16, padding: "10px 0", color: "var(--ink)", letterSpacing: "0.04em" }} />
+    </div>
+  );
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const MIN_PASSWORD = 8;
+
+/** Runs an async submit that resolves to an error message (or null), tracking busy/error state. */
+function useSubmit() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const ok = phone.length === 10;
-  const submit = async () => {
+  const run = async (fn: () => Promise<string | null>) => {
     setBusy(true); setErr("");
-    const e = await onSend(phone);
-    if (e) { setErr(e); setBusy(false); }
+    const e = await fn();
+    if (e) setErr(e);
+    setBusy(false);
   };
+  return { busy, err, setErr, run };
+}
+
+/** Email + password log-in. `onSubmit` returns an error message or null. */
+export function EmailLogin({ title, accent, body = "Log in with the email and password you signed up with.", switchTo, onSubmit }: {
+  title: string; accent: string; body?: string; switchTo?: SwitchTo;
+  onSubmit: (email: string, password: string) => Promise<string | null>;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const { busy, err, setErr, run } = useSubmit();
+  const ok = EMAIL.test(email.trim()) && password.length > 0;
   return (
     <Shell>
       <H title={title} accent={accent} body={body} />
-      <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) submit(); }} style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
-        <div>
-          <label style={label} htmlFor="phone">Mobile Number</label>
-          <div style={{ ...field, display: "flex", alignItems: "center", gap: 10, padding: "4px 14px" }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)", borderRight: "1.5px solid var(--line)", paddingRight: 10 }}>🇮🇳 +91</span>
-            <input id="phone" value={phone} inputMode="numeric" autoComplete="tel-national" placeholder="98765 43210"
-              onChange={(e) => { setPhone(e.target.value.replace(/\D/g, "").slice(0, 10)); setErr(""); }}
-              style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 16, padding: "10px 0", color: "var(--ink)", letterSpacing: "0.04em" }} />
-          </div>
-          {err && <p role="alert" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--red)" }}>{err}</p>}
-        </div>
-        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Sending…" : cta}</PrimaryButton>
-        {switchTo && (
-          <p style={{ margin: 0, textAlign: "center", fontSize: 13.5, color: "var(--ink-soft)" }}>
-            {switchTo.prompt}{" "}
-            <button type="button" onClick={switchTo.onClick} style={{ background: "none", border: "none", padding: 0, color: "var(--blue)", fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>{switchTo.cta}</button>
-          </p>
-        )}
-        <p style={{ marginTop: "auto", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center", lineHeight: 1.5 }}>
-          By continuing you agree to Ridewallah&apos;s Terms of Service and Privacy Policy.
-        </p>
+      <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) run(() => onSubmit(email, password)); }} onChange={() => setErr("")}
+        style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+        <div><label style={label} htmlFor="le">Email</label><input id="le" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={field} autoComplete="email" /></div>
+        <div><label style={label} htmlFor="lp">Password</label><PasswordInput id="lp" value={password} onChange={setPassword} autoComplete="current-password" /></div>
+        <Err msg={err} />
+        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Logging in…" : "Log in"}</PrimaryButton>
+        <Switch to={switchTo} />
+        <Terms />
       </form>
     </Shell>
   );
 }
 
-const OTP_LENGTH = 6;
+export interface SignUpDetails { name: string; email: string; phone: string; password: string }
 
-/** `onVerify` / `onResend` return an error message or null. */
-export function OtpStep({ phone, onBack, onVerify, onResend }: {
-  phone: string; onBack: () => void; onVerify: (code: string) => Promise<string | null>; onResend: () => Promise<string | null>;
+/** Create an account: name, email, mobile and password. `onSubmit` returns an error message or null. */
+export function SignUpForm({ title, accent, body, cta = "Create account", switchTo, onSubmit }: {
+  title: string; accent: string; body: string; cta?: string; switchTo?: SwitchTo;
+  onSubmit: (d: SignUpDetails) => Promise<string | null>;
 }) {
-  const [otp, setOtp] = useState("");
-  const [left, setLeft] = useState(30);
-  const [checking, setChecking] = useState(false);
-  const [err, setErr] = useState("");
-  // Latest callback without re-running the verify effect when the parent re-renders.
-  const verify = useRef(onVerify);
-  useEffect(() => { verify.current = onVerify; }, [onVerify]);
-  useEffect(() => {
-    if (left <= 0) return;
-    const t = setTimeout(() => setLeft((l) => l - 1), 1000);
-    return () => clearTimeout(t);
-  }, [left]);
-  useEffect(() => {
-    if (otp.length !== OTP_LENGTH) return;
-    let live = true;
-    setChecking(true); setErr("");
-    verify.current(otp).then((e) => {
-      if (!live || !e) return;
-      setErr(e); setOtp(""); setChecking(false);
-    });
-    return () => { live = false; };
-  }, [otp]);
-  const resend = async () => {
-    setErr("");
-    const e = await onResend();
-    if (e) setErr(e); else setLeft(30);
-  };
+  const [d, setD] = useState<SignUpDetails>({ name: "", email: "", phone: "", password: "" });
+  const set = (p: Partial<SignUpDetails>) => setD((x) => ({ ...x, ...p }));
+  const { busy, err, setErr, run } = useSubmit();
+  const problem = !d.name.trim() ? "name" : !EMAIL.test(d.email.trim()) ? "email" : d.phone.length !== 10 ? "phone" : d.password.length < MIN_PASSWORD ? "password" : null;
   return (
-    <Shell onBack={onBack}>
-      <H title="Verify your number" body={`Enter the ${OTP_LENGTH}-digit code sent to +91 ${phone.slice(0, 5)} ${phone.slice(5)}`} />
-      <div style={{ padding: "32px 24px 0" }}>
-        <OtpInput value={otp} onChange={(v) => { setOtp(v); setErr(""); }} length={OTP_LENGTH} />
-        {err && <p role="alert" style={{ textAlign: "center", margin: "14px 0 0", fontSize: 12.5, color: "var(--red)" }}>{err}</p>}
-        <p style={{ textAlign: "center", margin: "22px 0 0", fontSize: 13.5, color: "var(--ink-soft)" }}>
-          {checking ? "Verifying…" : left > 0 ? <>Resend code in <b style={{ color: "var(--ink)" }}>0:{String(left).padStart(2, "0")}</b></> : (
-            <button onClick={resend} style={{ background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Resend OTP</button>
-          )}
-        </p>
-      </div>
+    <Shell>
+      <H title={title} accent={accent} body={body} />
+      <form onSubmit={(e) => { e.preventDefault(); if (!problem && !busy) run(() => onSubmit(d)); }} onChange={() => setErr("")}
+        style={{ padding: "24px 24px", display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
+        <div><label style={label} htmlFor="sn">Full Name</label><input id="sn" value={d.name} onChange={(e) => set({ name: e.target.value })} placeholder="Amit Sharma" style={field} autoComplete="name" /></div>
+        <div><label style={label} htmlFor="se">Email</label><input id="se" type="email" value={d.email} onChange={(e) => set({ email: e.target.value })} placeholder="you@example.com" style={field} autoComplete="email" /></div>
+        <div><label style={label} htmlFor="phone">Mobile Number</label><MobileInput value={d.phone} onChange={(phone) => set({ phone })} /></div>
+        <div>
+          <label style={label} htmlFor="sp">Password</label>
+          <PasswordInput id="sp" value={d.password} onChange={(password) => set({ password })} autoComplete="new-password" />
+          <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: d.password && d.password.length < MIN_PASSWORD ? "var(--red)" : "var(--ink-mute)" }}>At least {MIN_PASSWORD} characters</p>
+        </div>
+        <Err msg={err} />
+        <PrimaryButton type="submit" disabled={!!problem || busy}>{busy ? "Creating account…" : cta}</PrimaryButton>
+        <Switch to={switchTo} />
+        <Terms />
+      </form>
     </Shell>
   );
 }
 
-/** Name, email and optional referral — shown once, after the first OTP. */
-export function ProfileSetup({ onDone }: { onDone: (p: { name: string; email: string }) => void }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [ref, setRef] = useState("");
+/** For someone already signed in who has no customer profile yet (e.g. they signed up as a rider first). */
+export function ProfileSetup({ initial, onDone }: {
+  initial: { name: string; phone: string }; onDone: (p: { name: string; phone: string }) => Promise<string | null>;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [phone, setPhone] = useState(initial.phone.replace(/\D/g, "").slice(-10));
+  const { busy, err, setErr, run } = useSubmit();
+  const ok = !!name.trim() && phone.length === 10;
   return (
     <Shell>
-      <H title="Almost there!" accent="Tell us about you" body="This helps drivers greet you and receipts reach your inbox." />
-      <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onDone({ name: name.trim(), email: email.trim() }); }}
+      <H title="Almost there!" accent="Tell us about you" body="This helps drivers greet you and reach you during a ride." />
+      <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) run(() => onDone({ name: name.trim(), phone })); }} onChange={() => setErr("")}
         style={{ padding: "24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
         <div><label style={label} htmlFor="n">Full Name</label><input id="n" value={name} onChange={(e) => setName(e.target.value)} placeholder="Amit Sharma" style={field} autoComplete="name" /></div>
-        <div><label style={label} htmlFor="e">Email <span style={{ fontWeight: 400, color: "var(--ink-mute)" }}>(optional)</span></label><input id="e" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={field} autoComplete="email" /></div>
-        <div><label style={label} htmlFor="r">Referral Code <span style={{ fontWeight: 400, color: "var(--ink-mute)" }}>(optional)</span></label><input id="r" value={ref} onChange={(e) => setRef(e.target.value.toUpperCase())} placeholder="e.g. RIDE100" style={field} /></div>
-        <div style={{ marginTop: "auto" }}><PrimaryButton type="submit" disabled={!name.trim()}>Continue</PrimaryButton></div>
+        <div><label style={label} htmlFor="phone">Mobile Number</label><MobileInput value={phone} onChange={setPhone} /></div>
+        <Err msg={err} />
+        <div style={{ marginTop: "auto" }}><PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Saving…" : "Continue"}</PrimaryButton></div>
       </form>
     </Shell>
   );
