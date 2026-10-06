@@ -10,7 +10,7 @@ import VehicleArt from "../VehicleArt";
 import ParcelArt from "../ParcelArt";
 import { Avatar, DemoButton, Footer, PageHeader, PrimaryButton, Stars, StatusBadge, card, field, iconBtn } from "../ui";
 import {
-  CURRENT_LOCATION, NON_AC_DISCOUNT, PARCEL_RATE, PARCEL_TYPES, PLACES, RIDE_STEPS, discountFor, fareFor, inr, parcelFareFor, tripEstimate, type Coupon, type ParcelInfo, type PayMethod, type Place, type Service, type Vehicle, type VehicleKind,
+  CURRENT_LOCATION, NON_AC_DISCOUNT, PARCEL_RATE, PARCEL_TYPES, PLACES, RIDE_STEPS, discountFor, fareFor, inr, parcelFareFor, tripEstimate, type Coupon, type ParcelInfo, type ParcelWeight, type PayMethod, type Place, type Service, type Vehicle, type VehicleKind,
 } from "../../lib/data";
 import type { ActiveRide, Booking } from "./types";
 import { useCatalog } from "../../lib/CatalogProvider";
@@ -321,6 +321,21 @@ const PAYS: { id: PayMethod; label: string; sub: string; Icon: typeof CardIcon }
   { id: "Cash", label: "Cash", sub: "Pay the driver at drop", Icon: CashIcon },
 ];
 
+/** Fare lines for a booking — shared by the checkout summary and the receipt so they always agree.
+ * Built from the standard (AC, passenger) fare plus any peak surge, then adjusted for parcel or Non-AC pricing. */
+function fareLines(b: Booking, v: Vehicle, weights: ParcelWeight[]) {
+  const isParcel = b.service === "parcel";
+  const plain = fareFor(v, b.km, b.min);
+  const standard = fareFor(v, b.km, b.min, b.surge);
+  const distance = Math.round(v.perKm * b.km);
+  return {
+    base: v.base, distance, time: Math.max(0, plain - v.base - distance), surge: standard - plain,
+    weight: isParcel ? weights.find((w) => w.label === b.parcel?.weight)?.extra ?? 0 : 0,
+    adjust: isParcel ? standard - Math.round(standard * PARCEL_RATE) : standard - b.fare,
+    adjustLabel: isParcel ? `Parcel rate (${Math.round((1 - PARCEL_RATE) * 100)}% off)` : `Non-AC (${Math.round(NON_AC_DISCOUNT * 100)}% off)`,
+  };
+}
+
 export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; onBack: () => void; onConfirm: (coupon: Coupon | null, pay: PayMethod) => void }) {
   const { coupons, activeCoupons, parcelWeights, vehicleById, vehicleLabel, settings } = useCatalog();
   // Admin → Settings can switch cash or online payments off.
@@ -333,14 +348,7 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
   const isParcel = booking.service === "parcel";
   const off = discountFor(coupon, booking.fare);
   const total = booking.fare - off;
-  // Breakdown is built from the standard (AC, passenger) fare, plus any peak surge, then adjusted.
-  const plain = fareFor(v, booking.km, booking.min);
-  const standard = fareFor(v, booking.km, booking.min, booking.surge);
-  const surgeExtra = standard - plain;
-  const distanceFare = Math.round(v.perKm * booking.km);
-  const timeFare = Math.max(0, plain - v.base - distanceFare);
-  const weightCharge = isParcel ? parcelWeights.find((w) => w.label === booking.parcel?.weight)?.extra ?? 0 : 0;
-  const adjust = isParcel ? standard - Math.round(standard * PARCEL_RATE) : standard - booking.fare;
+  const { distance: distanceFare, time: timeFare, surge: surgeExtra, weight: weightCharge, adjust, adjustLabel } = fareLines(booking, v, parcelWeights);
   const label = isParcel ? `${v.name} delivery` : vehicleLabel(v.id, v.acOption ? booking.ac : undefined);
 
   const apply = (c?: Coupon) => {
@@ -440,7 +448,7 @@ export function ConfirmPage({ booking, onBack, onConfirm }: { booking: Booking; 
           {row(`Distance (${booking.km} km × ₹${v.perKm})`, inr(distanceFare))}
           {row(`Time (~${booking.min} min)`, inr(timeFare))}
           {surgeExtra > 0 && row(`Peak pricing (${booking.surge}×)`, inr(surgeExtra))}
-          {adjust > 0 && row(isParcel ? `Parcel rate (${Math.round((1 - PARCEL_RATE) * 100)}% off)` : `Non-AC (${Math.round(NON_AC_DISCOUNT * 100)}% off)`, "− " + inr(adjust), false, "var(--success-text)")}
+          {adjust > 0 && row(adjustLabel, "− " + inr(adjust), false, "var(--success-text)")}
           {weightCharge > 0 && row(`Weight (${booking.parcel!.weight})`, inr(weightCharge))}
           {off > 0 && row(`Coupon ${coupon!.code}`, "− " + inr(off), false, "var(--success-text)")}
           <div style={{ borderTop: "1px dashed var(--line-strong)", margin: "6px 0" }} />
@@ -626,13 +634,14 @@ export function Sheet({ children, onClose }: { children: React.ReactNode; onClos
 
 const TAGS = ["Clean vehicle", "Polite driver", "Safe driving", "On time", "Good music", "Smooth route"];
 
-export function TripDonePage({ ride, onDone, onReceipt }: { ride: ActiveRide; onDone: (stars: number) => void; onReceipt: () => void }) {
+export function TripDonePage({ ride, onDone }: { ride: ActiveRide; onDone: (stars: number) => void }) {
   const total = ride.fare - discountFor(ride.coupon, ride.fare);
   const cash = ride.pay === "Cash";
   const isParcel = ride.service === "parcel";
   const [paid, setPaid] = useState<"no" | "busy" | "yes">(ride.pay === "Wallet" ? "yes" : "no");
   const [stars, setStars] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
+  const [receipt, setReceipt] = useState(false);
 
   // Cash: the driver confirms collection on their side a moment later.
   useEffect(() => {
@@ -680,8 +689,10 @@ export function TripDonePage({ ride, onDone, onReceipt }: { ride: ActiveRide; on
             </div>
           )}
         </div>
-        <button onClick={onReceipt} style={{ display: "block", margin: "14px auto 0", background: "none", border: "none", color: "var(--blue)", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>View Receipt</button>
+        <button onClick={() => setReceipt(true)} style={{ display: "block", margin: "14px auto 0", background: "none", border: "none", color: "var(--blue)", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>View Receipt</button>
       </div>
+
+      {receipt && <ReceiptSheet ride={ride} paid={paid === "yes"} onClose={() => setReceipt(false)} />}
 
       <Footer>
         {paid !== "yes" && !cash
@@ -689,5 +700,56 @@ export function TripDonePage({ ride, onDone, onReceipt }: { ride: ActiveRide; on
           : <PrimaryButton onClick={() => onDone(stars)} disabled={paid !== "yes"}>{stars ? "Submit Rating" : "Done"}</PrimaryButton>}
       </Footer>
     </div>
+  );
+}
+
+/* ───────────────────────── Receipt ───────────────────────── */
+
+/** Itemised receipt shown in the app (nothing is emailed). */
+function ReceiptSheet({ ride, paid, onClose }: { ride: ActiveRide; paid: boolean; onClose: () => void }) {
+  const { vehicleById, vehicleLabel, parcelWeights } = useCatalog();
+  const v = vehicleById(ride.vehicle);
+  const isParcel = ride.service === "parcel";
+  const f = fareLines(ride, v, parcelWeights);
+  const off = discountFor(ride.coupon, ride.fare);
+  const issued = useMemo(() => new Date().toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }), []);
+  const row = (l: string, r: string, strong = false, color?: string) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: strong ? 15 : 13.5, fontWeight: strong ? 700 : 500, color: color ?? (strong ? "var(--ink)" : "var(--ink-soft)"), padding: "4px 0" }}>
+      <span>{l}</span><span style={{ textAlign: "right" }}>{r}</span>
+    </div>
+  );
+  const rule = <div style={{ borderTop: "1px dashed var(--line-strong)", margin: "8px 0" }} />;
+  return (
+    <Sheet onClose={onClose}>
+      <div role="dialog" aria-label="Receipt">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Receipt</p>
+            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>{isParcel ? "Parcel" : "Ride"} #{ride.id} · {issued}</p>
+          </div>
+          <StatusBadge status={paid ? "Paid" : "Pending"} />
+        </div>
+        {rule}
+        {row(isParcel ? "Delivery" : "Vehicle", isParcel ? `${v.name} delivery` : vehicleLabel(v.id, v.acOption ? ride.ac : undefined))}
+        {row(isParcel ? "Delivery partner" : "Driver", `${ride.driver.name}${ride.driver.plate ? ` · ${ride.driver.plate}` : ""}`)}
+        {row("Pickup", ride.from.name)}
+        {row(isParcel ? "Delivered to" : "Drop", ride.to.name)}
+        {row("Distance · time", `${ride.km} km · ${ride.min} min`)}
+        {isParcel && ride.parcel && row("Parcel", `${ride.parcel.type} · ${ride.parcel.weight}`)}
+        {rule}
+        {row("Base fare", inr(f.base))}
+        {row(`Distance (${ride.km} km × ₹${v.perKm})`, inr(f.distance))}
+        {row(`Time (~${ride.min} min)`, inr(f.time))}
+        {f.surge > 0 && row(`Peak pricing (${ride.surge}×)`, inr(f.surge))}
+        {f.adjust > 0 && row(f.adjustLabel, "− " + inr(f.adjust), false, "var(--success-text)")}
+        {f.weight > 0 && row(`Weight (${ride.parcel?.weight})`, inr(f.weight))}
+        {off > 0 && row(`Coupon ${ride.coupon!.code}`, "− " + inr(off), false, "var(--success-text)")}
+        {rule}
+        {row("Total", inr(ride.fare - off), true)}
+        {row("Payment", `${ride.pay} · ${paid ? "Paid" : ride.pay === "Cash" ? "Pay the driver in cash" : "Pending"}`)}
+        <p style={{ margin: "12px 0 14px", fontSize: 11.5, color: "var(--ink-mute)", textAlign: "center" }}>Thanks for {isParcel ? "sending" : "riding"} with Ridewallah · fares include applicable taxes</p>
+        <PrimaryButton onClick={onClose}>Close</PrimaryButton>
+      </div>
+    </Sheet>
   );
 }

@@ -323,7 +323,7 @@ export default function CustomerApp() {
                 onShare={() => flash("Live trip link shared with your emergency contacts")} />
             )}
             {detail?.k === "done" && active && (
-              <TripDonePage ride={active} onDone={finishRide} onReceipt={() => flash(`Receipt sent to ${user.email || "your phone"}`)} />
+              <TripDonePage ride={active} onDone={finishRide} />
             )}
 
             {/* ── Other detail pages ── */}
