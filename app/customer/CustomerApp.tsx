@@ -12,9 +12,10 @@ import {
 import type { ActiveRide, Booking } from "../components/customer/types";
 import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
-import { DRIVERS, PLACES, discountFor, inr, nowTime, type Customer, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
+import { PLACES, discountFor, inr, nowTime, type Customer, type Driver, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { createCustomer, hasSession, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { findDriver } from "./actions";
+import { accessToken, createCustomer, hasSession, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 
 const SHELL_MAX_W = 430;
 
@@ -42,6 +43,13 @@ const BLOCKED = "This account has been blocked. Please contact support@ridewalla
 const AC_KEY = "ridewallah:prefer-ac";
 const readAc = () => { try { return localStorage.getItem(AC_KEY) !== "0"; } catch { return true; } };
 const writeAc = (on: boolean) => { try { localStorage.setItem(AC_KEY, on ? "1" : "0"); } catch { /* storage blocked */ } };
+
+/** Stand-in until dispatch assigns a real driver. */
+const NO_DRIVER: Driver = { id: "", name: "—", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Approved", online: false, joined: "", earnings: 0 };
+
+/** Dispatch retries while no matching rider is online: every 5 s, for about 30 s. */
+const SEARCH_RETRY_MS = 5000;
+const SEARCH_TRIES = 6;
 
 let seq = 1290;
 
@@ -124,10 +132,7 @@ export default function CustomerApp() {
   /* ── Ride lifecycle simulation (stands in for the realtime socket from PRD §10) ── */
   const advance = (r: ActiveRide): ActiveRide => {
     switch (r.status) {
-      case "Searching": {
-        const d = DRIVERS.find((x) => x.vehicle === r.vehicle && x.kyc === "Approved" && !x.suspended) ?? DRIVERS[0];
-        return { ...r, status: "Assigned", driver: d, progress: 0 };
-      }
+      // Searching → Assigned happens when dispatch finds a real driver (see the effect below).
       case "Assigned": return { ...r, status: "Arriving", progress: 0 };
       case "Arriving": return { ...r, status: "Arrived", progress: 1 };
       case "Arrived": return { ...r, status: "Started", progress: 0 };
@@ -161,7 +166,30 @@ export default function CustomerApp() {
       }, 450);
       return () => clearInterval(t);
     }
-    const wait = { Searching: 3500, Assigned: 1800, Arrived: 5000 }[status as "Searching" | "Assigned" | "Arrived"];
+    // Dispatch: ask the server for an approved, online rider with the booked vehicle; retry while none is free.
+    if (status === "Searching") {
+      let live = true, tries = 0;
+      const ride = active!;
+      const giveUp = (reason: string) => {
+        setRides((x) => [record(ride, { status: "Cancelled", cancelReason: reason, paid: false }), ...x]);
+        setActive(null);
+        goTab("home");
+        flash(reason);
+      };
+      const search = async () => {
+        const token = await accessToken();
+        const { driver, error } = token ? await findDriver(token, ride.vehicle) : { driver: null, error: "Please log in again" };
+        if (!live) return;
+        if (driver) { setActive((r) => (r && r.status === "Searching" ? { ...r, status: "Assigned", driver, progress: 0 } : r)); return; }
+        if (error) { giveUp(`Couldn't find a driver — ${error}`); return; }
+        if (++tries >= SEARCH_TRIES) { giveUp(`No ${ride.service === "parcel" ? "delivery partners" : "drivers"} available nearby right now — please try again shortly`); return; }
+        timer = setTimeout(search, SEARCH_RETRY_MS);
+      };
+      let timer = setTimeout(search, 1500);
+      return () => { live = false; clearTimeout(timer); };
+    }
+
+    const wait = { Assigned: 1800, Arrived: 5000 }[status as "Assigned" | "Arrived"];
     if (!wait) return;
     const t = setTimeout(() => setActive((r) => (r && r.status === status ? advance(r) : r)), wait);
     return () => clearTimeout(t);
@@ -175,7 +203,7 @@ export default function CustomerApp() {
 
   const confirmRide = (b: Booking) => {
     const ride: ActiveRide = {
-      ...b, id: `${b.service === "parcel" ? "PD" : "RD"}${++seq}`, status: "Searching", progress: 0, driver: DRIVERS[0],
+      ...b, id: `${b.service === "parcel" ? "PD" : "RD"}${++seq}`, status: "Searching", progress: 0, driver: NO_DRIVER,
       otp: String(1000 + Math.floor(Math.random() * 9000)), eta: 5,
     };
     setActive(ride);

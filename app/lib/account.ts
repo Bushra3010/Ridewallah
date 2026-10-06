@@ -45,6 +45,12 @@ export async function signUpDetails() {
   return { name: String(m.name ?? ""), email: data.user?.email ?? "", phone: String(m.phone ?? "") };
 }
 
+/** The current session's access token — server actions use it to identify the caller. */
+export async function accessToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token ?? null;
+}
+
 export async function hasSession() {
   const { data } = await supabase.auth.getSession();
   return !!data.session;
