@@ -18,7 +18,8 @@ import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/dat
 import { useCatalog } from "../lib/CatalogProvider";
 import { FieldError, accessToken, hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 import type { Feedback } from "../lib/mappers";
-import { acceptRide, advanceRide, cancelTrip as cancelTripOnServer, cashCollected, declineRide, riderPoll } from "./actions";
+import { EditProfilePage } from "../components/EditProfile";
+import { updateRiderProfile, acceptRide, advanceRide, cancelTrip as cancelTripOnServer, cashCollected, declineRide, riderPoll } from "./actions";
 
 const SHELL_MAX_W = 430;
 /** How often the app checks for ride requests and trip changes while online. */
@@ -31,7 +32,8 @@ type Stage = "splash" | "login" | "signup" | "kyc" | "pending" | "app";
 type Detail =
   | { k: "alerts" } | { k: "support" } | { k: "trip"; id: string }
   | { k: "wallet" } | { k: "performance" } | { k: "hotspots" }
-  | { k: Exclude<AccountKey, "help" | "performance"> };
+  | { k: Exclude<AccountKey, "help" | "performance"> }
+  | { k: "editProfile" };
 
 /** Placeholder until the signed-in rider's profile loads. */
 const NO_RIDER: Driver = { id: "", name: "", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Pending", online: false, joined: "", earnings: 0 };
@@ -43,6 +45,10 @@ const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
 export default function RiderApp() {
   const { incentives, vehicleById, commission, announcementsFor } = useCatalog();
+  const { settings } = useCatalog();
+  /** Cities a rider can pick: the active service areas from admin, or the KYC list if none are set up. */
+  const activeAreas = settings.serviceAreas.filter((a) => a.active).map((a) => a.city);
+  const riderCities = activeAreas.length ? activeAreas : ["Noida", "Delhi", "Gurugram", "Lucknow"];
   const [stage, setStage] = useState<Stage>("splash");
   /** Name, email and mobile from sign-up — prefill KYC and go on the rider record. */
   const [signup, setSignup] = useState({ name: "", email: "", phone: "" });
@@ -381,6 +387,19 @@ export default function RiderApp() {
                 {detail.k === "hotspots" && <HotspotsPage online={online} onNavigate={navigate} onGoOnline={() => toggleOnline(true)} onBack={back} />}
                 {detail.k === "documents" && <DocumentsPage onBack={back} onUploaded={(d) => flash(`${d} uploaded — we'll verify it within 24 hours`)} />}
                 {detail.k === "vehicle" && <VehiclePage rider={rider} onBack={back} />}
+                {detail.k === "editProfile" && (
+                  <EditProfilePage initial={{ name: rider.name, email: rider.email ?? "", phone: rider.phone, city: rider.city }}
+                    cities={riderCities.includes(rider.city) ? riderCities : [rider.city, ...riderCities]}
+                    note="To change your vehicle, contact rider support — vehicle changes are re-verified."
+                    onBack={back}
+                    onSave={async (v) => {
+                      const token = await accessToken();
+                      const { data, error } = token ? await updateRiderProfile(token, v) : { data: undefined, error: "Please log in again" };
+                      if (!data) return error ?? "Couldn't save your profile";
+                      setRider(data); back(); flash("Profile updated");
+                      return null;
+                    }} />
+                )}
                 {detail.k === "bank" && <BankPage onBack={back} onSaved={() => flash("UPI ID updated")} />}
                 {detail.k === "preferences" && (
                   <PreferencesPage prefs={prefs} vehicle={rider.vehicle} onBack={back} onChange={(p) => {
@@ -407,7 +426,7 @@ export default function RiderApp() {
                 {tab === "earnings" && <EarningsScreen today={today} />}
                 {tab === "trips" && <TripsScreen trips={trips} onOpen={(r) => push({ k: "trip", id: r.id })} />}
                 {tab === "incentives" && <IncentivesScreen progress={{ today: today.trips, week, peak }} />}
-                {tab === "account" && <RiderAccount rider={rider} stats={{ acceptance, cancellation }} onMenu={openAccount} onLogout={logout} />}
+                {tab === "account" && <RiderAccount rider={rider} stats={{ acceptance, cancellation }} onEdit={() => push({ k: "editProfile" })} onMenu={openAccount} onLogout={logout} />}
               </>
             )}
           </div>

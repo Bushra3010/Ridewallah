@@ -14,7 +14,8 @@ import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
 import { PLACES, discountFor, inr, nowTime, type Customer, type Driver, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { bookRide, cancelRide as cancelRideOnServer, currentRide, payRide, rateRide, rideStatus } from "./actions";
+import { bookRide, cancelRide as cancelRideOnServer, currentRide, payRide, rateRide, rideStatus, updateProfile } from "./actions";
+import { EditProfilePage } from "../components/EditProfile";
 import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 
 const SHELL_MAX_W = 430;
@@ -32,7 +33,8 @@ type Detail =
   | { k: "ride"; id: string }
   | { k: "rides" }
   | { k: "chat" }
-  | { k: "info"; key: ProfileKey | "notifications" };
+  | { k: "info"; key: ProfileKey | "notifications" }
+  | { k: "edit" };
 
 /** Placeholder until the signed-in customer's profile loads. */
 const NO_USER: Customer = { id: "", name: "", initials: "", phone: "", email: "", rides: 0, spent: 0, rating: 5, joined: "", complaints: 0 };
@@ -347,6 +349,18 @@ export default function CustomerApp() {
               return r ? <RideDetailPage ride={r} onBack={back} onHelp={() => push({ k: "chat" })} /> : null;
             })()}
             {detail?.k === "info" && <ProfileInfo which={detail.key} onBack={back} />}
+            {detail?.k === "edit" && (
+              <EditProfilePage initial={{ name: user.name, email: user.email, phone: user.phone }}
+                note="Your login email stays the same — this email is used for receipts and updates."
+                onBack={back}
+                onSave={async (v) => {
+                  const token = await accessToken();
+                  const { data, error } = token ? await updateProfile(token, v) : { data: undefined, error: "Please log in again" };
+                  if (!data) return error ?? "Couldn't save your profile";
+                  setUser(data); back(); flash("Profile updated");
+                  return null;
+                }} />
+            )}
 
             {/* ── Tabs ── */}
             {!detail && tab === "home" && settings.maintenance && (
@@ -374,6 +388,7 @@ export default function CustomerApp() {
               <ProfileScreen
                 user={user}
                 stats={{ rides: rides.filter((r) => r.status === "Completed").length, saved: 2, coupons: activeCoupons.length }}
+                onEdit={() => push({ k: "edit" })}
                 onMenu={(key) => push(key === "rides" ? { k: "rides" } : key === "help" ? { k: "chat" } : { k: "info", key })}
                 onLogout={logout}
                 onDelete={() => flash("Deletion request sent — we'll confirm by SMS within 48 hours")}

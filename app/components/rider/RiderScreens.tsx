@@ -524,8 +524,8 @@ const MENU: { k: AccountKey; label: string; Icon: typeof HelpIcon }[] = [
   { k: "help", label: "Help & Support", Icon: HelpIcon },
 ];
 
-export function RiderAccount({ rider, stats, onMenu, onLogout }: {
-  rider: Driver; stats: { acceptance: number; cancellation: number }; onMenu: (k: AccountKey) => void; onLogout: () => void;
+export function RiderAccount({ rider, stats, onEdit, onMenu, onLogout }: {
+  rider: Driver; stats: { acceptance: number; cancellation: number }; onEdit: () => void; onMenu: (k: AccountKey) => void; onLogout: () => void;
 }) {
   const { vehicleById } = useCatalog();
   return (
@@ -540,6 +540,7 @@ export function RiderAccount({ rider, stats, onMenu, onLogout }: {
               <p style={{ margin: "1px 0 0", fontSize: 12.5, color: "var(--text-muted)" }}>{rider.phone}</p>
               <p style={{ margin: "1px 0 0", fontSize: 12.5, color: "var(--text-muted)" }}>Rider ID {rider.id} · {rider.city}</p>
             </div>
+            <button onClick={onEdit} aria-label="Edit profile" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--blue)", fontSize: 12.5, fontWeight: 600, letterSpacing: "0.03em", alignSelf: "flex-start" }}>EDIT</button>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <span style={{ background: "var(--green)", color: "white", fontSize: 11, fontWeight: 600, padding: "5px 11px", borderRadius: 6 }}>✓ VERIFIED RIDER</span>

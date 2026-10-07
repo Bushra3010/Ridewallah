@@ -48,7 +48,7 @@ export function toRide(r: any): Ride {
 export function toDriver(d: any, rides: any[] = []): Driver {
   const mine = rides.filter((r) => r.driver_id === d.id && r.status === "Completed");
   return {
-    id: d.id, name: d.name, initials: initials(d.name), phone: d.phone, rating: +d.rating, trips: mine.length,
+    id: d.id, name: d.name, initials: initials(d.name), phone: d.phone, email: d.email ?? undefined, rating: +d.rating, trips: mine.length,
     vehicle: d.vehicle, model: d.model, plate: d.plate, city: d.city, kyc: d.kyc, online: d.online, suspended: d.suspended,
     joined: ist(d.joined).date, earnings: Math.round(sum(mine, net) * DRIVER_SHARE),
   };

@@ -110,7 +110,7 @@ export const RIDE_STEPS: RideStatus[] = ["Searching", "Assigned", "Arriving", "A
 export type PayMethod = "UPI" | "Cash" | "Card" | "Wallet";
 
 export interface Driver {
-  id: string; name: string; initials: string; phone: string; rating: number; trips: number;
+  id: string; name: string; initials: string; phone: string; email?: string; rating: number; trips: number;
   vehicle: VehicleKind; model: string; plate: string; city: string;
   kyc: "Approved" | "Pending" | "Rejected"; online: boolean; suspended?: boolean; joined: string; earnings: number;
 }

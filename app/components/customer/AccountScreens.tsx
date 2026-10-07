@@ -270,9 +270,9 @@ const MENU: { key: ProfileKey; label: string; Icon: (p: { s?: number; c?: string
   { key: "about", label: "About Ridewallah", Icon: InfoIcon },
 ];
 
-export function ProfileScreen({ user, stats, onMenu, onLogout, onDelete }: {
+export function ProfileScreen({ user, stats, onEdit, onMenu, onLogout, onDelete }: {
   user: { name: string; initials: string; email: string; phone: string; rating: number };
-  stats: { rides: number; saved: number; coupons: number }; onMenu: (k: ProfileKey) => void; onLogout: () => void; onDelete: () => void;
+  stats: { rides: number; saved: number; coupons: number }; onEdit: () => void; onMenu: (k: ProfileKey) => void; onLogout: () => void; onDelete: () => void;
 }) {
   return (
     <div style={{ paddingBottom: 12 }}>
@@ -286,7 +286,7 @@ export function ProfileScreen({ user, stats, onMenu, onLogout, onDelete }: {
               {user.email && <p style={{ margin: "1px 0 0", fontSize: 13, color: "var(--text-muted)" }}>{user.email}</p>}
               <p style={{ margin: "1px 0 0", fontSize: 12.5, color: "var(--text-muted)" }}>{user.phone}</p>
             </div>
-            <span style={{ color: "var(--blue)", fontSize: 12.5, fontWeight: 600, letterSpacing: "0.03em", alignSelf: "flex-start" }}>EDIT</span>
+            <button onClick={onEdit} aria-label="Edit profile" style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--blue)", fontSize: 12.5, fontWeight: 600, letterSpacing: "0.03em", alignSelf: "flex-start" }}>EDIT</button>
           </div>
           <span style={{ display: "inline-block", marginTop: 14, background: "var(--green)", color: "white", fontSize: 11, fontWeight: 600, padding: "5px 11px", borderRadius: 6, letterSpacing: "0.02em" }}>★ {user.rating} RIDER RATING</span>
         </div>
