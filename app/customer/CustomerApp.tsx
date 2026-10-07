@@ -15,7 +15,7 @@ import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../compo
 import { PLACES, discountFor, inr, nowTime, type Customer, type Driver, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
 import { findDriver } from "./actions";
-import { accessToken, createCustomer, hasSession, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 
 const SHELL_MAX_W = 430;
 
@@ -38,6 +38,7 @@ type Detail =
 const NO_USER: Customer = { id: "", name: "", initials: "", phone: "", email: "", rides: 0, spent: 0, rating: 5, joined: "", complaints: 0 };
 
 const BLOCKED = "This account has been blocked. Please contact support@ridewallah.in.";
+const RIDER_LOGIN = "This is a rider account. Riders use the Rider app at /rider.";
 
 /** The AC / Non-AC choice on the home screen is remembered on this device. */
 const AC_KEY = "ridewallah:prefer-ac";
@@ -90,7 +91,11 @@ export default function CustomerApp() {
   const enter = async (afterSetup = false): Promise<string | null> => {
     try {
       const c = await loadCustomer();
-      if (!c) { const d = await signUpDetails(); setSetupInitial({ name: d.name, phone: d.phone }); setStage("setup"); return null; }
+      if (!c) {
+        // The customer app is for customers only: rider logins are sent to the Rider app, not given a customer profile.
+        if (await isRiderLogin()) { await signOut(); setStage("login"); return RIDER_LOGIN; }
+        const d = await signUpDetails(); setSetupInitial({ name: d.name, phone: d.phone }); setStage("setup"); return null;
+      }
       if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
       setUser(c);
       setRides(await loadCustomerRides(c.id));

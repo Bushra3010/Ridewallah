@@ -94,6 +94,12 @@ export async function loadCustomerRides(customerId: string): Promise<Ride[]> {
   return rows.map(toRide);
 }
 
+/** True when the signed-in login is registered as a rider (used to keep rider logins out of the customer app). */
+export async function isRiderLogin() {
+  const rows = list(await supabase.from("drivers").select("id").eq("user_id", await uid()).limit(1));
+  return rows.length > 0;
+}
+
 /* ───────── Riders ───────── */
 
 export async function loadRider(): Promise<Driver | null> {
