@@ -3,8 +3,11 @@
 /* Admin panel writes. Every action re-checks the admin session (server actions are reachable by direct POST)
  * and validates its input before touching Supabase with the service-role key. */
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { checkCredentials, endSession, requireAdmin, startSession } from "../lib/admin-auth";
 import { supabaseAdmin } from "../lib/supabase/admin";
+import { invalidateCatalog } from "../lib/catalog";
+import { adminCancelRide, releaseRider } from "../lib/rides-server";
 import { AUDIENCES, type Coupon, type Driver, type Settings, type Ticket, type Vehicle } from "../lib/data";
 
 export type Result = { error?: string };
@@ -21,12 +24,27 @@ async function run(fn: () => PromiseLike<{ error: { message: string } | null } |
 }
 
 /** Catalog edits show up in the customer and rider apps on their next load. */
-const refreshApps = () => { revalidatePath("/customer"); revalidatePath("/rider"); };
+const refreshApps = () => { invalidateCatalog(); revalidatePath("/"); revalidatePath("/customer"); revalidatePath("/rider"); };
 
 /* ───────── Session ───────── */
 
+/** Sign-in throttling (QA audit B7): wrong passwords per address, plus an overall cap against distributed guessing. */
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILS_PER_IP = 5;
+const MAX_FAILS_TOTAL = 50;
+
 export async function login(email: string, password: string): Promise<Result> {
-  if (!checkCredentials(String(email), String(password))) return { error: "Wrong email or password" };
+  const h = await headers();
+  const ip = (h.get("x-nf-client-connection-ip") ?? h.get("x-forwarded-for")?.split(",")[0] ?? h.get("x-real-ip") ?? "unknown").trim();
+  const since = new Date(Date.now() - LOGIN_WINDOW_MS).toISOString();
+  const fails = () => supabaseAdmin.from("admin_login_attempts").select("id", { count: "exact", head: true }).eq("ok", false).gte("at", since);
+  const [mine, all] = await Promise.all([fails().eq("ip", ip), fails()]);
+  if ((mine.count ?? 0) >= MAX_FAILS_PER_IP || (all.count ?? 0) >= MAX_FAILS_TOTAL) {
+    return { error: "Too many sign-in attempts — try again in 15 minutes" };
+  }
+  const ok = checkCredentials(String(email), String(password));
+  await supabaseAdmin.from("admin_login_attempts").insert({ ip, ok });
+  if (!ok) return { error: "Wrong email or password" };
   await startSession();
   return {};
 }
@@ -45,7 +63,17 @@ export async function updateDriver(id: string, p: Partial<Pick<Driver, "kyc" | "
     if (p.kyc !== undefined) { if (!KYC.includes(p.kyc)) throw new Error("Invalid KYC status"); patch.kyc = p.kyc; }
     if (p.suspended !== undefined) patch.suspended = !!p.suspended;
     if (p.online !== undefined) patch.online = !!p.online;
-    return supabaseAdmin.from("drivers").update(patch).eq("id", String(id));
+    const res = await supabaseAdmin.from("drivers").update(patch).eq("id", String(id));
+    if (res.error) return res;
+    // A suspended rider's live trips are closed and offers withdrawn, so no customer is left stuck (B12).
+    if (patch.suspended === true) await releaseRider(String(id));
+  });
+}
+
+/** Closes a live ride from the admin panel — for stuck or problem trips (B12). */
+export async function closeRide(rideId: string, reason: string) {
+  return run(async () => {
+    await adminCancelRide(String(rideId), String(reason || "Closed by admin"));
   });
 }
 

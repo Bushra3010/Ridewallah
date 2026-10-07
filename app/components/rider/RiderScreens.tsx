@@ -377,8 +377,7 @@ export function TripPage({ req, phase, progress, onArrived, onStart, onEnd, onCo
                 <b>Waiting {mmss(waited)}</b>
                 <span style={{ color: "var(--ink-soft)" }}>{waited < FREE_WAIT_SEC ? ` · free for ${mmss(FREE_WAIT_SEC - waited)}` : ` · ${inr(WAIT_FEE_PER_MIN)}/min charge`}</span>
               </span>
-              {fee > 0 ? <span style={{ fontSize: 13.5, fontWeight: 800, color: "var(--warning-text)" }}>+{inr(fee)}</span>
-                : <button onClick={() => setWaited(FREE_WAIT_SEC + 55)} style={{ background: "none", border: "1px dashed var(--line-strong)", borderRadius: 8, padding: "3px 8px", fontSize: 10.5, color: "var(--ink-mute)", cursor: "pointer" }}>Demo: skip 3 min</button>}
+              {fee > 0 && <span style={{ fontSize: 13.5, fontWeight: 800, color: "var(--warning-text)" }}>+{inr(fee)}</span>}
             </div>
             <div style={{ ...card, padding: 16, textAlign: "center" }}>
               <p style={{ margin: "0 0 12px", fontSize: 13.5, fontWeight: 600 }}>Ask the customer for their 4-digit ride OTP</p>

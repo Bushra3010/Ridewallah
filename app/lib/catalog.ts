@@ -33,19 +33,49 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const dateLabel = (iso: string) => { const [y, m, d] = iso.split("-"); return `${d} ${MONTHS[+m - 1]} ${y}`; };
 
 /** `asAdmin` reads with the service-role key — the admin panel needs inactive coupons too. */
+/** The public catalog changes rarely, so each server instance reuses it for a short while instead of running
+ * seven queries per page and per booking (bursts of those intermittently failed — QA audit B14). */
+const CACHE_MS = 30_000;
+let cached: { at: number; catalog: Promise<Catalog> } | null = null;
+
+/** Drop the cached catalog — called after admin edits to pricing, coupons or settings. */
+export function invalidateCatalog() {
+  cached = null;
+}
+
+/** Runs a query, retrying once on a transient failure. */
+async function fetchRows<T extends { error: { message?: string; code?: string } | null; status?: number }>(q: () => PromiseLike<T>): Promise<T> {
+  const first = await q();
+  return first.error ? q() : first;
+}
+
+const describe = (e: { message?: string; code?: string; details?: string } | null, status?: number) =>
+  [e?.message, e?.code && `code ${e.code}`, e?.details, status && `HTTP ${status}`].filter(Boolean).join(" · ") || "unknown error";
+
+/** `asAdmin` reads with the service-role key (never cached) — the admin panel needs inactive coupons too. */
 export async function getCatalog({ asAdmin = false } = {}): Promise<Catalog> {
+  if (asAdmin) return loadCatalog(true);
+  if (!cached || Date.now() - cached.at > CACHE_MS) {
+    const catalog = loadCatalog(false);
+    cached = { at: Date.now(), catalog };
+    catalog.catch(() => { if (cached?.catalog === catalog) cached = null; }); // never cache a failure
+  }
+  return cached.catalog;
+}
+
+async function loadCatalog(asAdmin: boolean): Promise<Catalog> {
   const db = asAdmin ? supabaseAdmin : supabasePublic;
   const [vehicles, weights, coupons, hotspots, incentives, settings, announcements] = await Promise.all([
-    db.from("vehicles").select("*").order("sort"),
-    db.from("parcel_weights").select("*").order("sort"),
-    db.from("coupons").select("*").order("expires"),
-    db.from("hotspots").select("*").order("surge", { ascending: false }),
-    db.from("incentives").select("*").order("id"),
-    db.from("app_settings").select("*").eq("id", 1).maybeSingle(),
-    db.from("announcements").select("*").order("created_at", { ascending: false }).limit(30),
+    fetchRows(() => db.from("vehicles").select("*").order("sort")),
+    fetchRows(() => db.from("parcel_weights").select("*").order("sort")),
+    fetchRows(() => db.from("coupons").select("*").order("expires")),
+    fetchRows(() => db.from("hotspots").select("*").order("surge", { ascending: false })),
+    fetchRows(() => db.from("incentives").select("*").order("id")),
+    fetchRows(() => db.from("app_settings").select("*").eq("id", 1).maybeSingle()),
+    fetchRows(() => db.from("announcements").select("*").order("created_at", { ascending: false }).limit(30)),
   ]);
-  const err = [vehicles, weights, coupons, hotspots, incentives].find((r) => r.error)?.error;
-  if (err) throw new Error(`Couldn't load catalog from Supabase: ${err.message}`);
+  const failed = [vehicles, weights, coupons, hotspots, incentives].find((r) => r.error);
+  if (failed) throw new Error(`Couldn't load catalog from Supabase: ${describe(failed.error, failed.status)}`);
 
   return {
     vehicles: vehicles.data!.map((v) => ({

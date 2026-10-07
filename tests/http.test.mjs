@@ -14,11 +14,14 @@ let C;
 before(async () => {
   const m = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
   for (const [id, v] of Object.entries(m.node ?? {})) ids[v.exportedName] = id;
-  const up = await fetch(BASE).then((r) => r.ok, () => false);
-  if (!up) throw new Error(`No server at ${BASE} — start the app first`);
+  const page = await fetch(BASE).then((r) => (r.ok ? r.text() : ""), () => "");
+  if (!page) throw new Error(`No server at ${BASE} — start the app first`);
+  if (!/Ridewallah/.test(page)) throw new Error(`The server at ${BASE} isn't Ridewallah — refusing to send it test requests`);
   C = await makeCustomer();
 });
-after(cleanup);
+const started = new Date().toISOString();
+// H5's wrong passwords would otherwise lock admin sign-in (and count toward the overall cap) for 15 minutes.
+after(async () => { await admin.from("admin_login_attempts").delete().gte("at", started); await cleanup(); });
 
 async function call(page, name, args, headers = {}) {
   const res = await fetch(`${BASE}${page}`, {

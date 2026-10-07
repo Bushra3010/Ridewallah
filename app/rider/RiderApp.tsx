@@ -16,10 +16,10 @@ import { ChatScreen, type ChatMessage } from "../components/customer/AccountScre
 import { DemoButton, Toast } from "../components/ui";
 import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { FieldError, accessToken, hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { FieldError, accessToken, hasSession, loadRider, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 import type { Feedback } from "../lib/mappers";
 import { EditProfilePage } from "../components/EditProfile";
-import { updateRiderProfile, acceptRide, advanceRide, cancelTrip as cancelTripOnServer, cashCollected, declineRide, riderPoll } from "./actions";
+import { myActivity, updateRiderProfile, acceptRide, advanceRide, cancelTrip as cancelTripOnServer, cashCollected, declineRide, riderPoll } from "./actions";
 
 const SHELL_MAX_W = 430;
 /** How often the app checks for ride requests and trip changes while online. */
@@ -85,7 +85,10 @@ export default function RiderApp() {
       setRider(d);
       if (d.kyc !== "Approved") { setStage("pending"); return null; }
       if (d.suspended) { await signOut(); setStage("splash"); return SUSPENDED; }
-      const a = await loadRiderActivity(d.id);
+      const token = await accessToken();
+      const res = token ? await myActivity(token) : { data: undefined, error: "Please log in again" };
+      if (!res.data) throw new Error(res.error ?? "Couldn't load your trips");
+      const a = res.data;
       setTrips(a.trips); setTxns(a.wallet); setFeedback(a.feedback);
       setOnline(d.online);
       setStage("app");
@@ -212,18 +215,19 @@ export default function RiderApp() {
   }, [request, flash]);
 
   /** Saves the trip's next step on the server, then updates the screen. */
-  const step = async (to: "Arrived" | "Started" | "Completed", opts: { otp?: string; waitFee?: number }, then: () => void) => {
+  const step = async (to: "Arrived" | "Started" | "Completed", opts: { otp?: string }, then: (serverWaitFee: number) => void) => {
     if (!trip) return;
     const token = await accessToken();
-    const { error } = token ? await advanceRide(token, trip.req.id, to, opts) : { error: "Please log in again" };
+    const { data, error } = token ? await advanceRide(token, trip.req.id, to, opts) : { data: undefined, error: "Please log in again" };
     if (error) { flash(error); if (/cancelled/i.test(error)) { setTrip(null); setTab("home"); refreshActivity(); } return; }
-    then();
+    then(data?.waitFee ?? 0);
   };
 
   /** Trips, wallet and feedback, fresh from the database. */
   const refreshActivity = async () => {
     if (!rider.id) return;
-    const a = await loadRiderActivity(rider.id).catch(() => null);
+    const token = await accessToken();
+    const a = token ? (await myActivity(token)).data : undefined;
     if (a) { setTrips(a.trips); setTxns(a.wallet); setFeedback(a.feedback); }
   };
 
@@ -371,7 +375,7 @@ export default function RiderApp() {
                 onCancel={() => setSheet("cancel")}
                 onSos={() => setSheet("sos")}
                 onArrived={() => step("Arrived", {}, () => { setTrip({ ...trip, phase: "arrived", progress: 1 }); flash("Customer notified that you've arrived"); })}
-                onStart={(waitFee, otp) => step("Started", { otp, waitFee }, () => setTrip({ ...trip, req: { ...trip.req, waitFee }, phase: "onTrip", progress: 0 }))}
+                onStart={(_shownFee, otp) => step("Started", { otp }, (waitFee) => setTrip({ ...trip, req: { ...trip.req, waitFee: waitFee || undefined }, phase: "onTrip", progress: 0 }))}
                 onEnd={() => step("Completed", {}, () => setTrip({ ...trip, phase: "collect", progress: 1 }))}
                 onCollected={async () => {
                   const token = await accessToken();

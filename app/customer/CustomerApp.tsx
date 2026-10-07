@@ -14,9 +14,17 @@ import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
 import { PLACES, discountFor, inr, nowTime, type Customer, type Driver, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { bookRide, cancelRide as cancelRideOnServer, currentRide, payRide, rateRide, rideStatus, updateProfile } from "./actions";
+import { bookRide, cancelRide as cancelRideOnServer, currentRide, myRides, payRide, rateRide, rideStatus, updateProfile } from "./actions";
+
+/** The signed-in customer's ride history, from the server (driver names included). */
+async function fetchRides(): Promise<Ride[]> {
+  const token = await accessToken();
+  const { data, error } = token ? await myRides(token) : { data: undefined, error: "Please log in again" };
+  if (!data) throw new Error(error ?? "Couldn't load your rides");
+  return data;
+}
 import { EditProfilePage } from "../components/EditProfile";
-import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 
 const SHELL_MAX_W = 430;
 
@@ -97,7 +105,7 @@ export default function CustomerApp() {
       }
       if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
       setUser(c);
-      setRides(await loadCustomerRides(c.id));
+      setRides(await fetchRides());
       await resumeRide();
       setStage(afterSetup ? "perm" : "app");
       return null;
@@ -138,7 +146,7 @@ export default function CustomerApp() {
   const status = active?.status;
   const rideId = active?.id;
 
-  const refreshRides = async () => { if (user.id) setRides(await loadCustomerRides(user.id).catch(() => rides)); };
+  const refreshRides = async () => { setRides(await fetchRides().catch(() => rides)); };
 
   /** Leaves the live ride (cancelled or finished) and reloads ride history from the database. */
   const endRide = (message: string) => {

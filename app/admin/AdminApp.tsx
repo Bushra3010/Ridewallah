@@ -17,7 +17,7 @@ import {
 import type { AdminData } from "../lib/admin-data";
 import { useCatalog } from "../lib/CatalogProvider";
 import {
-  addTicketNote, createCoupon, login, logout, savePricing, saveSettings, sendAnnouncement, setCouponActive, setCustomerBlocked, setTicketStatus,
+  addTicketNote, closeRide, createCoupon, login, logout, savePricing, saveSettings, sendAnnouncement, setCouponActive, setCustomerBlocked, setTicketStatus,
   updateDriver, type Result,
 } from "./actions";
 
@@ -365,8 +365,22 @@ function RidesTable({ rows, onOpen }: { rows: Ride[]; onOpen: (r: Ride) => void 
   );
 }
 
+const LIVE = ["Searching", "Assigned", "Arriving", "Arrived", "Started"];
+
 function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
   const { vehicleById, vehicleLabel, commission } = useCatalog();
+  const router = useRouter();
+  const [closing, setClosing] = useState(false);
+  const [closeErr, setCloseErr] = useState("");
+  /** Stuck or problem trips: close the ride so the customer and rider are free again (QA audit B12). */
+  const close = async () => {
+    if (!window.confirm(`Close ride #${r.id}? The customer and rider will see it as cancelled.`)) return;
+    setClosing(true); setCloseErr("");
+    const { error } = await closeRide(r.id, "Closed by admin");
+    setClosing(false);
+    if (error) { setCloseErr(error); return; }
+    onClose(); router.refresh();
+  };
   const v = vehicleById(r.vehicle);
   const dist = Math.round(v.perKm * r.km);
   return (
@@ -396,6 +410,12 @@ function RideDrawer({ r, onClose }: { r: Ride; onClose: () => void }) {
         {kv("Platform commission", inr((r.fare - r.discount) * commission))}
         {kv("Payment", `${r.pay} · ${r.paid ? "Paid" : "Pending"}`)}
       </div>
+      {LIVE.includes(r.status) && (
+        <div>
+          <PrimaryButton tone="red" disabled={closing} onClick={close}>{closing ? "Closing…" : "Close ride"}</PrimaryButton>
+          {closeErr && <p role="alert" style={{ margin: "8px 0 0", fontSize: 12.5, color: "var(--red)" }}>{closeErr}</p>}
+        </div>
+      )}
     </Drawer>
   );
 }

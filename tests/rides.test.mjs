@@ -39,18 +39,18 @@ test("R1 happy path: book → accept → arrive → OTP start → complete → p
   await offline(R);
 });
 
-test("R2 invalid, skipped, reversed and repeated transitions are rejected", async () => {
+test("R2 invalid, skipped and reversed transitions are rejected; retried steps are harmless no-ops", async () => {
   const C = await makeCustomer(), R = await makeRider();
   const b = await assigned(C, R);
   assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Started", { otp: b.otp })), /can't go/i);
   assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Completed")), /can't go/i);
   await engine.advanceForRider(R.token, b.id, "Arrived");
-  assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Arrived")), /can't go/i);
+  await engine.advanceForRider(R.token, b.id, "Arrived"); // a retried step succeeds and does nothing more
   await engine.advanceForRider(R.token, b.id, "Started", { otp: b.otp });
   assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Arrived")), /can't go/i);
-  assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Started", { otp: b.otp })), /can't go/i);
+  await engine.advanceForRider(R.token, b.id, "Started", { otp: b.otp });
   await engine.advanceForRider(R.token, b.id, "Completed");
-  assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Completed")), /can't go/i);
+  await engine.advanceForRider(R.token, b.id, "Completed");
   assert.match(await rejects(() => engine.cancelForCustomer(C.token, b.id, "x")), /can't be cancelled/i);
   assert.match(await rejects(() => engine.cancelForRider(R.token, b.id, "x")), /can't be cancelled/i);
   assert.equal((await ride(b.id)).status, "Completed", "terminal state is kept");
@@ -239,14 +239,24 @@ test("R16 no riders: the search gives up and cancels", async () => {
   assert.match(s.cancelReason, /no drivers/i);
 });
 
-test("R17 rider cancellation: ride cancelled with the rider's reason (no reassignment)", async () => {
+test("R17 rider cancels before pickup: the ride is reassigned to another rider", async () => {
   const C = await makeCustomer(), R = await makeRider();
   const b = await assigned(C, R);
+  const R2 = await makeRider(); // comes online after the first rider accepted
+  await engine.advanceForRider(R.token, b.id, "Arrived");
   await engine.cancelForRider(R.token, b.id, "flat tyre");
-  const s = await engine.statusForCustomer(C.token, b.id);
-  assert.equal(s.status, "Cancelled");
-  assert.match(s.cancelReason, /rider: flat tyre/);
-  await offline(R);
+  const r = await ride(b.id);
+  assert.equal(r.status, "Searching");
+  assert.equal(r.driver_id, null);
+  assert.ok(r.declined_by.includes(R.rider.id), "the cancelling rider is not offered it again");
+  assert.equal(r.offered_to, R2.rider.id);
+  await engine.acceptForRider(R2.token, b.id);
+  assert.equal((await engine.statusForCustomer(C.token, b.id)).driver.id, R2.rider.id);
+  await engine.advanceForRider(R2.token, b.id, "Arrived");
+  await engine.advanceForRider(R2.token, b.id, "Started", { otp: b.otp });
+  await engine.cancelForRider(R2.token, b.id, "emergency");
+  assert.equal((await ride(b.id)).status, "Cancelled", "after the trip started a rider cancellation ends the ride");
+  await offline(R); await offline(R2);
 });
 
 test("R18 restart recovery: both apps get the live ride back", async () => {
@@ -264,15 +274,32 @@ test("R18 restart recovery: both apps get the live ride back", async () => {
   await offline(R);
 });
 
-test("R19 a suspended rider mid-trip cannot finish, and the customer is not left stuck", async () => {
+test("R19 suspending a rider mid-trip closes the trip, so the customer is not left stuck", async () => {
   const C = await makeCustomer(), R = await makeRider();
   const b = await assigned(C, R);
   await engine.advanceForRider(R.token, b.id, "Arrived");
   await engine.advanceForRider(R.token, b.id, "Started", { otp: b.otp });
+  // What the admin "suspend" action does (app/admin/actions.ts updateDriver → releaseRider).
   await admin.from("drivers").update({ suspended: true }).eq("id", R.rider.id);
+  await engine.releaseRider(R.rider.id);
   assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Completed")), /suspended/i);
-  const stuck = await engine.book(C.token, booking()).then(() => false, () => true);
-  assert.equal(stuck, false, "customer can't book again: their ride is stuck 'Started' with a suspended rider and nothing resolves it");
+  const r = await ride(b.id);
+  assert.equal(r.status, "Cancelled");
+  const s = await engine.statusForCustomer(C.token, b.id);
+  assert.match(s.cancelReason, /rider unavailable/i);
+  const again = await engine.book(C.token, booking());
+  assert.ok(again.id, "the customer can book again");
+  await engine.cancelForCustomer(C.token, again.id, "test");
+});
+
+test("R21 admin closes a stuck live ride", async () => {
+  const C = await makeCustomer(), R = await makeRider();
+  const b = await assigned(C, R);
+  await engine.adminCancelRide(b.id, "stuck");
+  assert.equal((await ride(b.id)).status, "Cancelled");
+  assert.match(await rejects(() => engine.adminCancelRide(b.id, "again")), /isn't live/i);
+  assert.match(await rejects(() => engine.advanceForRider(R.token, b.id, "Arrived")), /cancelled/i);
+  await offline(R);
 });
 
 test("R20 a login that is both customer and rider is not dispatched its own booking", async () => {
