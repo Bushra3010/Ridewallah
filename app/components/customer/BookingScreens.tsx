@@ -8,7 +8,7 @@ import {
 import MapView from "../MapView";
 import VehicleArt from "../VehicleArt";
 import ParcelArt from "../ParcelArt";
-import { Avatar, DemoButton, Footer, PageHeader, PrimaryButton, Stars, StatusBadge, card, field, iconBtn } from "../ui";
+import { Avatar, Footer, PageHeader, PrimaryButton, Stars, StatusBadge, card, field, iconBtn } from "../ui";
 import {
   CURRENT_LOCATION, NON_AC_DISCOUNT, PARCEL_RATE, PARCEL_TYPES, PLACES, RIDE_STEPS, discountFor, fareFor, inr, parcelFareFor, tripEstimate, type Coupon, type ParcelInfo, type ParcelWeight, type PayMethod, type Place, type Service, type Vehicle, type VehicleKind,
 } from "../../lib/data";
@@ -474,8 +474,8 @@ const PARCEL_LABEL: Record<string, string> = {
 
 const CANCEL_REASONS = ["Driver taking too long", "Changed my plans", "Booked by mistake", "Driver asked me to cancel", "Other"];
 
-export function LiveRidePage({ ride, onBack, onCancel, onChat, onDemoNext, onShare }: {
-  ride: ActiveRide; onBack: () => void; onCancel: (reason: string) => void; onChat: () => void; onDemoNext: () => void; onShare: () => void;
+export function LiveRidePage({ ride, onBack, onCancel, onChat, onShare }: {
+  ride: ActiveRide; onBack: () => void; onCancel: (reason: string) => void; onChat: () => void; onShare: () => void;
 }) {
   const { vehicleById, vehicleLabel } = useCatalog();
   const [asking, setAsking] = useState(false);
@@ -595,7 +595,6 @@ export function LiveRidePage({ ride, onBack, onCancel, onChat, onDemoNext, onSha
             Cancel {isParcel ? "Delivery" : "Ride"}
           </button>
         )}
-        <div style={{ textAlign: "center", marginTop: 14 }}><DemoButton onClick={onDemoNext}>skip to next step</DemoButton></div>
       </div>
 
       {asking && (
@@ -634,7 +633,8 @@ export function Sheet({ children, onClose }: { children: React.ReactNode; onClos
 
 const TAGS = ["Clean vehicle", "Polite driver", "Safe driving", "On time", "Good music", "Smooth route"];
 
-export function TripDonePage({ ride, onDone }: { ride: ActiveRide; onDone: (stars: number) => void }) {
+/** `onPay` charges an online payment (simulated gateway); `onDone` sends the rating and tags. */
+export function TripDonePage({ ride, onPay, onDone }: { ride: ActiveRide; onPay: () => Promise<void>; onDone: (stars: number, tags: string[]) => void }) {
   const total = ride.fare - discountFor(ride.coupon, ride.fare);
   const cash = ride.pay === "Cash";
   const isParcel = ride.service === "parcel";
@@ -650,7 +650,7 @@ export function TripDonePage({ ride, onDone }: { ride: ActiveRide; onDone: (star
     return () => clearTimeout(t);
   }, [cash, paid]);
 
-  const payNow = () => { setPaid("busy"); setTimeout(() => setPaid("yes"), 1500); };
+  const payNow = async () => { setPaid("busy"); await onPay(); setPaid("yes"); };
 
   return (
     <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
@@ -697,7 +697,7 @@ export function TripDonePage({ ride, onDone }: { ride: ActiveRide; onDone: (star
       <Footer>
         {paid !== "yes" && !cash
           ? <PrimaryButton onClick={payNow} disabled={paid === "busy"}>{paid === "busy" ? "Processing…" : `Pay ${inr(total)} with ${ride.pay}`}</PrimaryButton>
-          : <PrimaryButton onClick={() => onDone(stars)} disabled={paid !== "yes"}>{stars ? "Submit Rating" : "Done"}</PrimaryButton>}
+          : <PrimaryButton onClick={() => onDone(stars, tags)} disabled={paid !== "yes"}>{stars ? "Submit Rating" : "Done"}</PrimaryButton>}
       </Footer>
     </div>
   );

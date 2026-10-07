@@ -26,8 +26,9 @@ export const prettyPhone = (tenDigits: string) => `+91 ${tenDigits.slice(0, 5)} 
 const net = (r: any) => +r.fare - +r.discount;
 const sum = (rows: any[], f: (r: any) => number) => rows.reduce((s, r) => s + f(r), 0);
 
-/** Select string that brings along everything toRide needs. */
-export const RIDE_SELECT = "*, customer:customers(name), driver:drivers(name), weight:parcel_weights(label)";
+/** Select string that brings along everything toRide needs. rides links to drivers twice (driver_id and
+ * offered_to), so the driver embed names its foreign key. */
+export const RIDE_SELECT = "*, customer:customers(name), driver:drivers!rides_driver_id_fkey(name), weight:parcel_weights(label)";
 
 export function toRide(r: any): Ride {
   const t = ist(r.created_at);

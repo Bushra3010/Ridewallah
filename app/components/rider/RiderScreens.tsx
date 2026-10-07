@@ -9,14 +9,14 @@ import { BrandMark, Wordmark } from "../Brand";
 import MapView from "../MapView";
 import VehicleArt from "../VehicleArt";
 import { Avatar, OtpInput, PageHeader, PrimaryButton, Stars, StatusBadge, Tabs, Toggle, card, iconBtn } from "../ui";
-import { inr, WEEK, type Driver, type ParcelInfo, type Ride, type Service } from "../../lib/data";
+import { inr, WEEK, type Driver, type ParcelInfo, type PayMethod, type Ride, type Service } from "../../lib/data";
 import { useCatalog } from "../../lib/CatalogProvider";
 
 /** Platform commission on every fare. */
 
 export interface RideRequest {
   id: string; customer: string; initials: string; rating: number;
-  from: string; to: string; pickupKm: number; pickupMin: number; km: number; min: number; fare: number; pay: "Cash" | "UPI";
+  from: string; to: string; pickupKm: number; pickupMin: number; km: number; min: number; fare: number; pay: PayMethod;
   waitFee?: number;   // added when the customer keeps the rider waiting past the free window
   service?: Service;  // defaults to "ride"
   ac?: boolean;       // AC-optional cars only
@@ -265,7 +265,7 @@ const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padSta
 
 export function TripPage({ req, phase, progress, onArrived, onStart, onEnd, onCollected, onRated, onBack, onCall, onCancel, onSos, onNavigate }: {
   req: RideRequest; phase: TripPhase; progress: number;
-  onArrived: () => void; onStart: (waitFee: number) => void; onEnd: () => void; onCollected: () => void; onRated: (n: number) => void;
+  onArrived: () => void; onStart: (waitFee: number, otp: string) => void; onEnd: () => void; onCollected: () => void; onRated: (n: number) => void;
   onBack: () => void; onCall: () => void; onCancel: () => void; onSos: () => void; onNavigate: () => void;
 }) {
   const { commission } = useCatalog();
@@ -391,7 +391,7 @@ export function TripPage({ req, phase, progress, onArrived, onStart, onEnd, onCo
 
         <div style={{ marginTop: "auto" }}>
           {phase === "toPickup" && <PrimaryButton onClick={onArrived}>{progress >= 1 ? "I've Arrived" : "Mark Arrived"}</PrimaryButton>}
-          {phase === "arrived" && <PrimaryButton onClick={() => (otp.length === 4 ? onStart(fee) : setOtpErr(true))}>Start Trip</PrimaryButton>}
+          {phase === "arrived" && <PrimaryButton onClick={() => (otp.length === 4 ? onStart(fee, otp) : setOtpErr(true))}>Start Trip</PrimaryButton>}
           {phase === "onTrip" && <PrimaryButton tone="red" onClick={onEnd}>End Trip</PrimaryButton>}
         </div>
       </div>

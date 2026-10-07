@@ -14,7 +14,7 @@ import { Toast, card } from "../components/ui";
 import { BriefcaseIcon, CardIcon, HomeIcon, UpiIcon, WalletIcon } from "../components/icons";
 import { PLACES, discountFor, inr, nowTime, type Customer, type Driver, type Place, type Ride, type Service, type VehicleKind } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { findDriver } from "./actions";
+import { bookRide, cancelRide as cancelRideOnServer, currentRide, payRide, rateRide, rideStatus } from "./actions";
 import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, loadCustomerRides, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 
 const SHELL_MAX_W = 430;
@@ -48,11 +48,8 @@ const writeAc = (on: boolean) => { try { localStorage.setItem(AC_KEY, on ? "1" :
 /** Stand-in until dispatch assigns a real driver. */
 const NO_DRIVER: Driver = { id: "", name: "—", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Approved", online: false, joined: "", earnings: 0 };
 
-/** Dispatch retries while no matching rider is online: every 5 s, for about 30 s. */
-const SEARCH_RETRY_MS = 5000;
-const SEARCH_TRIES = 6;
-
-let seq = 1290;
+/** How often the live ride screen checks with the server. */
+const POLL_MS = 3000;
 
 /** Canned support replies until the real support backend is wired up. */
 function autoReply(body: string) {
@@ -99,6 +96,7 @@ export default function CustomerApp() {
       if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
       setUser(c);
       setRides(await loadCustomerRides(c.id));
+      await resumeRide();
       setStage(afterSetup ? "perm" : "app");
       return null;
     } catch (e) {
@@ -134,71 +132,79 @@ export default function CustomerApp() {
     toastTimer.current = setTimeout(() => setToast(null), 2200);
   };
 
-  /* ── Ride lifecycle simulation (stands in for the realtime socket from PRD §10) ── */
-  const advance = (r: ActiveRide): ActiveRide => {
-    switch (r.status) {
-      // Searching → Assigned happens when dispatch finds a real driver (see the effect below).
-      case "Assigned": return { ...r, status: "Arriving", progress: 0 };
-      case "Arriving": return { ...r, status: "Arrived", progress: 1 };
-      case "Arrived": return { ...r, status: "Started", progress: 0 };
-      case "Started": return { ...r, status: "Completed", progress: 1 };
-      default: return r;
-    }
+  /* ── Live ride: the server holds the truth (lib/rides-server.ts); this screen polls it and animates in between ── */
+  const status = active?.status;
+  const rideId = active?.id;
+
+  const refreshRides = async () => { if (user.id) setRides(await loadCustomerRides(user.id).catch(() => rides)); };
+
+  /** Leaves the live ride (cancelled or finished) and reloads ride history from the database. */
+  const endRide = (message: string) => {
+    setActive(null);
+    goTab("home");
+    flash(message);
+    refreshRides();
   };
 
-  const status = active?.status;
+  // Status messages, and the trip-done screen.
   useEffect(() => {
     if (!status) return;
     const msg: Record<string, string> = active?.service === "parcel" ? {
-      Assigned: "Delivery partner assigned! 📦", Arriving: "Partner is coming to pick up your parcel", Arrived: "Partner is at pickup — hand over the parcel and share the OTP",
+      Arriving: "Delivery partner assigned and on the way 📦", Arrived: "Partner is at pickup — hand over the parcel and share the OTP",
       Started: "Parcel picked up and on its way", Completed: "Your parcel has been delivered",
     } : {
-      Assigned: "Driver assigned! 🎉", Arriving: "Your driver is on the way", Arrived: "Your driver has arrived — share the OTP",
+      Arriving: "Driver assigned and on the way 🎉", Arrived: "Your driver has arrived — share the OTP",
       Started: "Trip started. Have a safe ride!", Completed: "You've reached your destination",
     };
     if (msg[status]) flash(msg[status]);
-    if (status === "Completed") { setStack([{ k: "done" }]); return; }
-
-    const moving = status === "Arriving" || status === "Started";
-    if (moving) {
-      const step = status === "Arriving" ? 0.045 : 0.03;
-      const t = setInterval(() => {
-        setActive((r) => {
-          if (!r || r.status !== status) return r;
-          const p = r.progress + step;
-          return p >= 1 ? advance(r) : { ...r, progress: p };
-        });
-      }, 450);
-      return () => clearInterval(t);
-    }
-    // Dispatch: ask the server for an approved, online rider with the booked vehicle; retry while none is free.
-    if (status === "Searching") {
-      let live = true, tries = 0;
-      const ride = active!;
-      const giveUp = (reason: string) => {
-        setRides((x) => [record(ride, { status: "Cancelled", cancelReason: reason, paid: false }), ...x]);
-        setActive(null);
-        goTab("home");
-        flash(reason);
-      };
-      const search = async () => {
-        const token = await accessToken();
-        const { driver, error } = token ? await findDriver(token, ride.vehicle) : { driver: null, error: "Please log in again" };
-        if (!live) return;
-        if (driver) { setActive((r) => (r && r.status === "Searching" ? { ...r, status: "Assigned", driver, progress: 0 } : r)); return; }
-        if (error) { giveUp(`Couldn't find a driver — ${error}`); return; }
-        if (++tries >= SEARCH_TRIES) { giveUp(`No ${ride.service === "parcel" ? "delivery partners" : "drivers"} available nearby right now — please try again shortly`); return; }
-        timer = setTimeout(search, SEARCH_RETRY_MS);
-      };
-      let timer = setTimeout(search, 1500);
-      return () => { live = false; clearTimeout(timer); };
-    }
-
-    const wait = { Assigned: 1800, Arrived: 5000 }[status as "Assigned" | "Arrived"];
-    if (!wait) return;
-    const t = setTimeout(() => setActive((r) => (r && r.status === status ? advance(r) : r)), wait);
-    return () => clearTimeout(t);
+    if (status === "Completed") setStack([{ k: "done" }]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the status changes
   }, [status]);
+
+  // The car moves along the route while arriving / on trip, then waits near the end for the rider's next step.
+  useEffect(() => {
+    if (status !== "Arriving" && status !== "Started") return;
+    const step = status === "Arriving" ? 0.03 : 0.02;
+    const t = setInterval(() => setActive((r) => (r && r.status === status ? { ...r, progress: Math.min(0.95, r.progress + step) } : r)), 450);
+    return () => clearInterval(t);
+  }, [status]);
+
+  // Ask the server what's happening while the ride is live.
+  useEffect(() => {
+    if (!rideId || !status || status === "Completed" || status === "Cancelled") return;
+    let live = true;
+    const tick = async () => {
+      const token = await accessToken();
+      if (!token || !live) return;
+      const { data } = await rideStatus(token, rideId);
+      if (!live || !data) return; // a failed check is retried on the next tick
+      if (data.status === "Cancelled") { endRide(data.cancelReason ?? "Ride cancelled"); return; }
+      setActive((r) => (r && r.id === rideId && r.status !== data.status ? {
+        ...r, status: data.status as ActiveRide["status"], driver: data.driver ?? r.driver,
+        progress: data.status === "Arrived" || data.status === "Completed" ? 1 : 0,
+      } : r));
+    };
+    tick();
+    const t = setInterval(tick, POLL_MS);
+    return () => { live = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restarts per ride and status
+  }, [rideId, status]);
+
+  /** After sign-in: pick up a ride that's still live (e.g. the page was reloaded mid-trip). */
+  const resumeRide = async () => {
+    const token = await accessToken();
+    const { data: r } = token ? await currentRide(token) : { data: null };
+    if (!r) return;
+    const place = (name: string): Place => ({ id: name, name, address: "" });
+    setActive({
+      service: r.service, from: place(r.from), to: place(r.to), vehicle: r.vehicle, ac: r.ac, parcel: r.parcel,
+      km: r.km, min: r.min, fare: r.fare, surge: 1, pay: r.pay,
+      coupon: r.couponCode ? coupons.find((c) => c.code === r.couponCode) ?? null : null,
+      id: r.id, status: r.status as ActiveRide["status"], driver: r.driver ?? NO_DRIVER, otp: r.otp, eta: 5,
+      progress: r.status === "Arrived" ? 1 : 0,
+    });
+    setStack([{ k: "live" }]);
+  };
 
   const startBooking = (to?: Place, prefer?: VehicleKind, service: Service = "ride") => {
     if (active) { push({ k: "live" }); flash(`You already have a ${active.service === "parcel" ? "delivery" : "ride"} in progress`); return; }
@@ -206,37 +212,41 @@ export default function CustomerApp() {
     push({ k: "search", to, prefer, service });
   };
 
-  const confirmRide = (b: Booking) => {
-    const ride: ActiveRide = {
-      ...b, id: `${b.service === "parcel" ? "PD" : "RD"}${++seq}`, status: "Searching", progress: 0, driver: NO_DRIVER,
-      otp: String(1000 + Math.floor(Math.random() * 9000)), eta: 5,
-    };
-    setActive(ride);
+  /** Saves the booking on the server, which prices it, and offers it to an available rider. */
+  const confirmRide = async (b: Booking) => {
+    const token = await accessToken();
+    const { data, error } = token ? await bookRide(token, {
+      service: b.service, vehicle: b.vehicle, ac: b.ac, pay: b.pay,
+      fromId: b.from.id, fromName: b.from.name, toId: b.to.id, toName: b.to.name,
+      parcel: b.parcel, couponCode: b.coupon?.code,
+    }) : { data: undefined, error: "Please log in again" };
+    if (!data) { flash(error ?? "Couldn't book this ride"); return; }
+    setActive({
+      ...b, id: data.id, otp: data.otp, fare: data.fare, km: data.km, min: data.min, surge: data.surge,
+      coupon: data.discount ? b.coupon : null, status: "Searching", progress: 0, driver: NO_DRIVER, eta: 5,
+    });
     setPendingCoupon(null);
     setStack([{ k: "live" }]);
   };
 
-  const record = (r: ActiveRide, extra: Partial<Ride>): Ride => ({
-    id: r.id, customer: user.name, driver: r.driver.name, vehicle: r.vehicle, from: r.from.name, to: r.to.name,
-    service: r.service, ac: r.service === "ride" ? r.ac : undefined, parcel: r.parcel,
-    km: r.km, min: r.min, fare: r.fare, discount: discountFor(r.coupon, r.fare), pay: r.pay, paid: true,
-    status: "Completed", date: "Today", time: nowTime(), ...extra,
-  });
-
-  const cancelRide = (reason: string) => {
+  const cancelRide = async (reason: string) => {
     if (!active) return;
-    setRides((x) => [record(active, { status: "Cancelled", cancelReason: reason, paid: false }), ...x]);
-    setActive(null);
-    goTab("home");
-    flash(active.service === "parcel" ? "Delivery cancelled" : "Ride cancelled");
+    const token = await accessToken();
+    const { error } = token ? await cancelRideOnServer(token, active.id, reason) : { error: "Please log in again" };
+    if (error) { flash(error); return; }
+    endRide(active.service === "parcel" ? "Delivery cancelled" : "Ride cancelled");
   };
 
-  const finishRide = (stars: number) => {
+  const payForRide = async () => {
+    const token = await accessToken();
+    if (active && token) await payRide(token, active.id);
+  };
+
+  const finishRide = async (stars: number, tags: string[]) => {
     if (!active) return;
-    setRides((x) => [record(active, { rating: stars || undefined }), ...x]);
-    setActive(null);
-    goTab("home");
-    flash(stars ? `Thanks for rating your ${active.service === "parcel" ? "delivery partner" : "driver"}!` : active.service === "parcel" ? "Thanks for sending with Ridewallah" : "Thanks for riding with Ridewallah");
+    const token = await accessToken();
+    if (stars && token) await rateRide(token, active.id, stars, tags);
+    endRide(stars ? `Thanks for rating your ${active.service === "parcel" ? "delivery partner" : "driver"}!` : active.service === "parcel" ? "Thanks for sending with Ridewallah" : "Thanks for riding with Ridewallah");
   };
 
   const sendChat = (body: string) => {
@@ -324,11 +334,10 @@ export default function CustomerApp() {
             )}
             {detail?.k === "live" && active && (
               <LiveRidePage ride={active} onBack={() => goTab("home")} onCancel={cancelRide} onChat={() => push({ k: "chat" })}
-                onDemoNext={() => setActive((r) => (r ? advance(r) : r))}
                 onShare={() => flash("Live trip link shared with your emergency contacts")} />
             )}
             {detail?.k === "done" && active && (
-              <TripDonePage ride={active} onDone={finishRide} />
+              <TripDonePage ride={active} onPay={payForRide} onDone={finishRide} />
             )}
 
             {/* ── Other detail pages ── */}

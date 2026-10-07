@@ -16,10 +16,13 @@ import { ChatScreen, type ChatMessage } from "../components/customer/AccountScre
 import { DemoButton, Toast } from "../components/ui";
 import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { FieldError, hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { FieldError, accessToken, hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 import type { Feedback } from "../lib/mappers";
+import { acceptRide, advanceRide, cancelTrip as cancelTripOnServer, cashCollected, declineRide, riderPoll } from "./actions";
 
 const SHELL_MAX_W = 430;
+/** How often the app checks for ride requests and trip changes while online. */
+const POLL_MS = 3000;
 /** How often the "verification in progress" screen re-checks for admin approval. */
 const APPROVAL_POLL_MS = 8000;
 
@@ -30,20 +33,11 @@ type Detail =
   | { k: "wallet" } | { k: "performance" } | { k: "hotspots" }
   | { k: Exclude<AccountKey, "help" | "performance"> };
 
-const REQUESTS: Omit<RideRequest, "id">[] = [
-  { customer: "Amit Sharma", initials: "AS", rating: 4.9, from: "Sector 12, Noida", to: "DLF Mall of India", pickupKm: 1.2, pickupMin: 3, km: 4.2, min: 16, fare: 160, pay: "UPI" },
-  { customer: "Priya Mehta", initials: "PM", rating: 4.7, from: "Botanical Garden Metro", to: "Sector 62, Noida", pickupKm: 0.8, pickupMin: 2, km: 6.8, min: 22, fare: 182, pay: "Cash" },
-  { customer: "Rahul Verma", initials: "RV", rating: 4.5, from: "Sector 29, Gurugram", to: "Cyber City, Gurugram", pickupKm: 0.9, pickupMin: 3, km: 4.8, min: 15, fare: 62, pay: "UPI",
-    service: "parcel", parcel: { type: "Documents", weight: "Up to 1 kg", receiver: "Sneha Verma", receiverPhone: "+91 98100 77881", note: "Hand to reception" } },
-  { customer: "Kavya Iyer", initials: "KI", rating: 5.0, from: "Great India Place", to: "Akshardham Temple", pickupKm: 1.6, pickupMin: 4, km: 9.1, min: 28, fare: 246, pay: "UPI" },
-];
-
 /** Placeholder until the signed-in rider's profile loads. */
 const NO_RIDER: Driver = { id: "", name: "", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Pending", online: false, joined: "", earnings: 0 };
 
 const SUSPENDED = "Your rider account is suspended. Please contact rider support.";
 
-let seq = 1300;
 let txSeq = 400;
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
@@ -76,7 +70,6 @@ export default function RiderApp() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const reqIdx = useRef(0);
 
   /** Signed in → route by KYC status and load the rider's own activity. Returns an error message, or null. */
   const enter = useCallback(async (): Promise<string | null> => {
@@ -145,22 +138,35 @@ export default function RiderApp() {
   // With "Accept cash rides" off, dispatch only sends online-paid rides.
   // Parcels only go to riders who opted in and whose vehicle can carry them; car riders get AC or Non-AC
   // rides depending on their "My AC is working" switch.
-  const sendRequest = useCallback(() => {
-    const v = vehicleById(rider.vehicle);
-    const ok = (r: (typeof REQUESTS)[number]) =>
-      (prefs.cash || r.pay !== "Cash") && (r.service !== "parcel" || (prefs.parcels && v.parcelMaxKg > 0));
-    let r = REQUESTS[reqIdx.current++ % REQUESTS.length];
-    for (let i = 0; i < REQUESTS.length && !ok(r); i++) r = REQUESTS[reqIdx.current++ % REQUESTS.length];
-    const parcel = r.service === "parcel";
-    const ac = !parcel && v.acOption ? prefs.ac : undefined;
-    const fare = ac === false ? Math.round(r.fare * 0.85) : r.fare;
-    setRequest({ ...r, fare, ac, id: `${parcel ? "PD" : "RD"}${++seq}` });
-  }, [prefs.cash, prefs.parcels, prefs.ac, rider.vehicle, vehicleById]);
+  // Live requests and trips come from the server: poll while online (or while a trip is on screen).
+  const tripId = trip?.req.id;
   useEffect(() => {
-    if (!online || request || trip || stage !== "app") return;
-    const t = setTimeout(sendRequest, 4500);
-    return () => clearTimeout(t);
-  }, [online, request, trip, stage, sendRequest]);
+    if (stage !== "app" || (!online && !tripId)) return;
+    let live = true;
+    const tick = async () => {
+      const token = await accessToken();
+      if (!token || !live) return;
+      const { data } = await riderPoll(token, tripId);
+      if (!live || !data) return;
+      if (data.cancelled && data.cancelled.id === tripId) {
+        setTrip(null); setSheet(null); setTab("home");
+        flash(`Trip cancelled — ${data.cancelled.reason}`);
+        refreshActivity();
+        return;
+      }
+      if (data.active && !tripId) {
+        const phase: TripPhase = data.active.status === "Started" ? "onTrip" : data.active.status === "Arrived" ? "arrived" : "toPickup";
+        setRequest(null);
+        setTrip({ req: data.active, phase, progress: phase === "arrived" ? 1 : 0 });
+        return;
+      }
+      if (!tripId) setRequest((cur) => (data.offer ? (cur?.id === data.offer.id ? cur : data.offer) : null));
+    };
+    tick();
+    const t = setInterval(tick, POLL_MS);
+    return () => { live = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restarts when going online/offline or the trip changes
+  }, [stage, online, tripId]);
 
   // Online-time ticker.
   useEffect(() => {
@@ -178,29 +184,50 @@ export default function RiderApp() {
     return () => clearInterval(t);
   }, [phase]);
 
-  const decline = useCallback((expired: boolean) => {
+  const decline = useCallback(async (expired: boolean) => {
+    const id = request?.id;
     setRequest(null);
+    const token = await accessToken();
+    if (id && token) await declineRide(token, id);
     setStats((s) => ({ ...s, declined: s.declined + 1 }));
     flash(expired ? "Request expired — counted as missed" : "Request declined");
-  }, [flash]);
+  }, [flash, request]);
 
-  const accept = useCallback(() => {
+  const accept = useCallback(async () => {
     if (!request) return;
-    setTrip({ req: request, phase: "toPickup", progress: 0 });
+    const token = await accessToken();
+    const { data, error } = token ? await acceptRide(token, request.id) : { data: undefined, error: "Please log in again" };
+    if (!data) { setRequest(null); flash(error ?? "This request is no longer available"); return; }
+    setTrip({ req: data, phase: "toPickup", progress: 0 });
     setRequest(null);
     setStack([]);
     setStats((s) => ({ ...s, accepted: s.accepted + 1 }));
     setAlerts((a) => [["Ride Accepted", `${request.from} → ${request.to} · ${inr(request.fare)}`, "just now", "ride"], ...a]);
-  }, [request]);
+  }, [request, flash]);
 
-  const cancelTrip = (reason: string) => {
+  /** Saves the trip's next step on the server, then updates the screen. */
+  const step = async (to: "Arrived" | "Started" | "Completed", opts: { otp?: string; waitFee?: number }, then: () => void) => {
+    if (!trip) return;
+    const token = await accessToken();
+    const { error } = token ? await advanceRide(token, trip.req.id, to, opts) : { error: "Please log in again" };
+    if (error) { flash(error); if (/cancelled/i.test(error)) { setTrip(null); setTab("home"); refreshActivity(); } return; }
+    then();
+  };
+
+  /** Trips, wallet and feedback, fresh from the database. */
+  const refreshActivity = async () => {
+    if (!rider.id) return;
+    const a = await loadRiderActivity(rider.id).catch(() => null);
+    if (a) { setTrips(a.trips); setTxns(a.wallet); setFeedback(a.feedback); }
+  };
+
+  const cancelTrip = async (reason: string) => {
     if (!trip) return;
     const { req } = trip;
-    setTrips((t) => [{
-      id: req.id, customer: req.customer, driver: rider.name, vehicle: rider.vehicle, from: req.from, to: req.to, km: req.km, min: req.min,
-      service: req.service, ac: req.ac, parcel: req.parcel,
-      fare: req.fare, discount: 0, pay: req.pay, paid: false, status: "Cancelled", date: "Today", time: nowTime(), cancelReason: reason,
-    }, ...t]);
+    const token = await accessToken();
+    const { error } = token ? await cancelTripOnServer(token, req.id, reason) : { error: "Please log in again" };
+    if (error) { flash(error); return; }
+    refreshActivity();
     setStats((s) => ({ ...s, cancelled: s.cancelled + 1 }));
     setTrip(null);
     setSheet(null);
@@ -221,13 +248,9 @@ export default function RiderApp() {
     setWeek((w) => w + 1);
     if (new Date().getHours() >= 18 && new Date().getHours() < 21) setPeak((p) => p + 1);
 
-    if (req.pay === "Cash") {
-      setWallet((w) => ({ ...w, dues: w.dues + cut }));
-      addTxn("Cash Commission", `Ride ${req.id} · ${Math.round(commission * 100)}% of ${inr(total)}`, -cut);
-    } else {
-      setWallet((w) => ({ ...w, balance: w.balance + net }));
-      addTxn("Trip Earning", `Ride ${req.id} · ${req.pay}`, net);
-    }
+    // The server records the trip and its wallet entry when the trip ends; this only updates the on-screen totals.
+    if (req.pay === "Cash") setWallet((w) => ({ ...w, dues: w.dues + cut }));
+    else setWallet((w) => ({ ...w, balance: w.balance + net }));
     if (count === daily.target) {
       setWallet((w) => ({ ...w, balance: w.balance + daily.reward }));
       addTxn("Incentive", `${daily.title} bonus`, daily.reward);
@@ -235,11 +258,7 @@ export default function RiderApp() {
       setUnread((u) => u + 1);
     }
 
-    setTrips((t) => [{
-      id: req.id, customer: req.customer, driver: rider.name, vehicle: rider.vehicle, from: req.from, to: req.to, km: req.km, min: req.min,
-      service: req.service, ac: req.ac, parcel: req.parcel,
-      fare: total, discount: 0, pay: req.pay, paid: true, status: "Completed", date: "Today", time: nowTime(), rating: stars || undefined,
-    }, ...t]);
+    refreshActivity();
     setAlerts((a) => [["Trip Completed", req.pay === "Cash" ? `${inr(total)} collected in cash` : `${inr(net)} credited to your wallet`, "just now", "pay"], ...a]);
     setTrip(null);
     setTab("home");
@@ -345,10 +364,14 @@ export default function RiderApp() {
                 onNavigate={() => navigate(trip.phase === "onTrip" ? trip.req.to : trip.req.from)}
                 onCancel={() => setSheet("cancel")}
                 onSos={() => setSheet("sos")}
-                onArrived={() => { setTrip({ ...trip, phase: "arrived", progress: 1 }); flash("Customer notified that you've arrived"); }}
-                onStart={(waitFee) => setTrip({ ...trip, req: { ...trip.req, waitFee }, phase: "onTrip", progress: 0 })}
-                onEnd={() => setTrip({ ...trip, phase: "collect", progress: 1 })}
-                onCollected={() => setTrip({ ...trip, phase: "rate" })}
+                onArrived={() => step("Arrived", {}, () => { setTrip({ ...trip, phase: "arrived", progress: 1 }); flash("Customer notified that you've arrived"); })}
+                onStart={(waitFee, otp) => step("Started", { otp, waitFee }, () => setTrip({ ...trip, req: { ...trip.req, waitFee }, phase: "onTrip", progress: 0 }))}
+                onEnd={() => step("Completed", {}, () => setTrip({ ...trip, phase: "collect", progress: 1 }))}
+                onCollected={async () => {
+                  const token = await accessToken();
+                  if (token && trip.req.pay === "Cash") await cashCollected(token, trip.req.id);
+                  setTrip({ ...trip, phase: "rate" });
+                }}
                 onRated={finish} />
             ) : detail ? (
               <>
@@ -379,7 +402,6 @@ export default function RiderApp() {
                       onToggle={toggleOnline}
                       onOpenEarnings={() => goTab("earnings")} onAlerts={() => { setUnread(0); push({ k: "alerts" }); }}
                       onQuick={openQuick} onClearGoHome={() => { setPrefs((p) => ({ ...p, goHome: null })); flash("Go Home off"); }} />
-                    {online && !request && <div style={{ textAlign: "center", marginTop: -8, paddingBottom: 16 }}><DemoButton onClick={sendRequest}>send a ride request now</DemoButton></div>}
                   </>
                 )}
                 {tab === "earnings" && <EarningsScreen today={today} />}
