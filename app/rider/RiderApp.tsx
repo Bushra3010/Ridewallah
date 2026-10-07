@@ -16,7 +16,7 @@ import { ChatScreen, type ChatMessage } from "../components/customer/AccountScre
 import { DemoButton, Toast } from "../components/ui";
 import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { FieldError, hasSession, loadRider, loadRiderActivity, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
 import type { Feedback } from "../lib/mappers";
 
 const SHELL_MAX_W = 430;
@@ -320,12 +320,13 @@ export default function RiderApp() {
             onSubmit={async (d) => (await signUp(d)) ?? (await enter())} />
         )}
         {stage === "kyc" && (
-          <KycFlow initial={signup} onSubmit={async (k) => {
+          <KycFlow initial={signup} account={signup.email} onLogout={logout} onSubmit={async (k) => {
             try {
-              setRider(await registerRider({ name: k.name, email: k.email, phone: signup.phone, vehicle: k.vehicle, model: k.model, plate: k.plate, city: k.city }));
+              setRider(await registerRider({ name: k.name, email: k.email, phone: k.phone, vehicle: k.vehicle, model: k.model, plate: k.plate, city: k.city }));
               setStage("pending");
+              return null;
             } catch (e) {
-              flash(e instanceof Error ? e.message : "Couldn't submit your application");
+              return { message: e instanceof Error ? e.message : "Couldn't submit your application", field: e instanceof FieldError ? e.field : undefined };
             }
           }} />
         )}

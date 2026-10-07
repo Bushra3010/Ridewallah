@@ -95,7 +95,7 @@ function PasswordInput({ id, value, onChange, autoComplete }: { id: string; valu
 }
 
 /** 10-digit Indian mobile number with a fixed +91 prefix. */
-function MobileInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function MobileInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div style={{ ...field, display: "flex", alignItems: "center", gap: 10, padding: "4px 14px" }}>
       <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)", borderRight: "1.5px solid var(--line)", paddingRight: 10 }}>🇮🇳 +91</span>

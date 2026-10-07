@@ -105,11 +105,20 @@ export async function loadRider(): Promise<Driver | null> {
 
 /** `phone` is the mobile number from sign-up, in either "9876543210" or "+91 98765 43210" form. */
 export async function registerRider(k: { name: string; email: string; phone: string; vehicle: VehicleKind; model: string; plate: string; city: string }): Promise<Driver> {
-  if (k.phone.replace(/\D/g, "").length < 10) throw new Error("Your mobile number is missing — please contact rider support.");
-  const row = check(await supabase.from("drivers").insert({
+  if (k.phone.replace(/\D/g, "").length < 10) throw new FieldError("Enter your 10-digit mobile number.", "phone");
+  const res = await supabase.from("drivers").insert({
     user_id: await uid(), name: k.name.trim(), email: k.email.trim() || null, phone: prettyPhone(k.phone.replace(/\D/g, "").slice(-10)), vehicle: k.vehicle, model: k.model, plate: k.plate.toUpperCase(), city: k.city,
-  }).select().single());
-  return toDriver(row);
+  }).select().single();
+  if (res.error) {
+    const field = /drivers_phone_key/i.test(res.error.message) ? "phone" : /drivers_plate_key/i.test(res.error.message) ? "plate" : undefined;
+    throw new FieldError(friendly(res.error.message), field);
+  }
+  return toDriver(res.data);
+}
+
+/** An error tied to one form field, so the form can jump to it and show the message there. */
+export class FieldError extends Error {
+  constructor(message: string, readonly field?: "phone" | "plate") { super(message); }
 }
 
 export async function loadRiderActivity(driverId: string): Promise<{ trips: Ride[]; wallet: WalletTxn[]; feedback: Feedback[] }> {
