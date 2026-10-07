@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "tsc -p tests/tsconfig.json && node --conditions=react-server --env-file=.env.local --experimental-websocket --test --test-concurrency=1 tests/pricing.test.mjs tests/security.test.mjs tests/rides.test.mjs tests/pricing-integrity.test.mjs tests/perf.test.mjs",
+    "test:http": "tsc -p tests/tsconfig.json && node --conditions=react-server --env-file=.env.local --experimental-websocket --test tests/http.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
