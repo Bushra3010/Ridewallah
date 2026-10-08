@@ -24,7 +24,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={poppins.variable}>
+    // suppressHydrationWarning: the Android app shell (Capacitor) adds safe-area CSS variables to <html> before React loads.
+    <html lang="en" className={poppins.variable} suppressHydrationWarning>
       <body style={{ margin: 0, padding: 0, minHeight: "100vh", fontFamily: "var(--font-poppins)" }}>
         {children}
       </body>

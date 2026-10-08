@@ -1,0 +1,16 @@
+{
+  "appId": "com.ridewallah.rider",
+  "appName": "Ridewallah Rider",
+  "webDir": "www",
+  "server": {
+    "url": "https://ridewallah.netlify.app/rider",
+    "errorPath": "offline.html",
+    "allowNavigation": [
+      "ridewallah.netlify.app"
+    ],
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#1e3a8a"
+  }
+}

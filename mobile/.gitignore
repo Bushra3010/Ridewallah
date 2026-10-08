@@ -1,0 +1,3 @@
+node_modules/
+# Built APKs — rebuild with `npm run apk`
+dist/

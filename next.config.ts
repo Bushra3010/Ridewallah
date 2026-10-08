@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Dev only: lets the Android emulator (which reaches this machine as 10.0.2.2) load the dev server's scripts.
+  allowedDevOrigins: ["10.0.2.2"],
   // The driver app now lives at /rider — keep old links working.
   async redirects() {
     return [{ source: "/driver", destination: "/rider", permanent: true }];
