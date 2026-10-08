@@ -1,4 +1,4 @@
-// Generates Android launcher icons and splash screens for both apps from the web app's SVG icons
+// Generates Android and iOS launcher icons and splash screens for both apps from the web app's SVG icons
 // (app/customer/icon.svg, app/rider/icon.svg) and the logo's pin mark. Run: npm run icons
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -65,5 +65,19 @@ for (const [app, cfg] of Object.entries(APPS)) {
 </adaptive-icon>
 `);
   fs.copyFileSync(path.join(res, "mipmap-anydpi-v26", "ic_launcher.xml"), path.join(res, "mipmap-anydpi-v26", "ic_launcher_round.xml"));
+  // iOS (when the project exists): one opaque, square 1024 icon (iOS rounds the corners itself) and the
+  // 2732×2732 splash used by Capacitor's launch screen.
+  const ios = path.join(here, "..", app, "ios/App/App/Assets.xcassets");
+  if (fs.existsSync(ios)) {
+    const square = svg.replace(/rx="[^"]*"/, 'rx="0"');
+    fs.writeFileSync(path.join(ios, "AppIcon.appiconset/AppIcon-512@2x.png"),
+      await sharp(Buffer.from(square), { density: 1200 }).resize(1024, 1024).flatten({ background: stops[1] }).png().toBuffer());
+    const mark = await png(PIN(cfg.splash), 640);
+    const splash = await sharp({ create: { width: 2732, height: 2732, channels: 4, background: cfg.splash } })
+      .composite([{ input: mark, gravity: "center" }]).png().toBuffer();
+    for (const f of ["splash-2732x2732.png", "splash-2732x2732-1.png", "splash-2732x2732-2.png"]) {
+      fs.writeFileSync(path.join(ios, "Splash.imageset", f), splash);
+    }
+  }
   console.log(`${app}: icons and splash screens written (gradient ${stops.join(" → ")})`);
 }

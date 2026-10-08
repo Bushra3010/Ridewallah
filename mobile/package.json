@@ -1,15 +1,18 @@
 {
   "name": "ridewallah-mobile",
   "private": true,
-  "description": "Android shells for the Ridewallah customer and rider apps (Capacitor). Each app opens its part of the live site.",
+  "description": "Android and iOS shells for the Ridewallah customer and rider apps (Capacitor). Each app opens its part of the live site.",
   "scripts": {
-    "sync": "cd customer && npx cap sync android && cd ../rider && npx cap sync android",
+    "sync": "cd customer && npx cap sync && cd ../rider && npx cap sync",
     "icons": "node scripts/icons.mjs",
-    "apk": "node scripts/build-apks.mjs"
+    "apk": "node scripts/build-apks.mjs",
+    "ios:customer": "cd customer && npx cap sync ios && npx cap open ios",
+    "ios:rider": "cd rider && npx cap sync ios && npx cap open ios"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
-    "@capacitor/core": "8.5.3"
+    "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "8.5.3"
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.3"
