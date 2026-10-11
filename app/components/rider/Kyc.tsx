@@ -34,7 +34,7 @@ export function KycFlow({ initial, account, onLogout, onSubmit }: {
   account?: string; onLogout?: () => void;
   onSubmit: (k: KycData) => Promise<{ message: string; field?: "phone" | "plate" } | null>;
 }) {
-  const { vehicles } = useCatalog();
+  const vehicles = useCatalog().vehicles.filter((v) => v.enabled);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string; field?: "phone" | "plate" } | null>(null);

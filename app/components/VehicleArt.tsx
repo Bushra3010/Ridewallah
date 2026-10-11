@@ -1,6 +1,7 @@
 import { useId } from "react";
 import Image from "next/image";
 import type { VehicleKind } from "../lib/data";
+import { XlArt } from "./ServiceArt";
 
 /* Vehicle pictures for fare lists, ride cards and profiles. Photos live in public/vehicles/ (transparent
  * WebP); a kind without a photo falls back to the drawn three-quarter illustration below. */
@@ -8,6 +9,7 @@ import type { VehicleKind } from "../lib/data";
 const PHOTOS: Partial<Record<VehicleKind, string>> = {
   bike: "/vehicles/bike.webp",
   auto: "/vehicles/auto.webp",
+  erick: "/vehicles/erick.webp",
   mini: "/vehicles/mini.webp",
   sedan: "/vehicles/sedan.webp",
 };
@@ -33,11 +35,11 @@ export default function VehicleArt({ kind, size = 56 }: { kind: VehicleKind; siz
   if (photo) {
     return <Image src={photo} alt="" aria-hidden="true" width={size} height={h} style={{ width: size, height: h, objectFit: "contain" }} />;
   }
+  if (kind === "suv") return <XlArt size={size} />;
 
-  const car: Record<"mini" | "sedan" | "suv", Car> = {
+  const car: Record<"mini" | "sedan", Car> = {
     mini: { body: ["var(--gold)", "var(--blue-dark)"], front: "var(--blue-dark)", trim: "#ffffff" },
     sedan: { body: ["#ffffff", "#d3dae6"], front: "#c3ccdb", trim: "var(--blue)" },
-    suv: { body: ["#7b8597", "#3a4252"], front: "#323947", trim: "#cfd6e2" },
   };
 
   return (
@@ -56,7 +58,7 @@ export default function VehicleArt({ kind, size = 56 }: { kind: VehicleKind; siz
           <stop offset="0.55" stopColor="#1f2a3d" />
           <stop offset="1" stopColor="#111827" />
         </linearGradient>
-        {(kind === "mini" || kind === "sedan" || kind === "suv") && (
+        {(kind === "mini" || kind === "sedan") && (
           <linearGradient id={`${id}-body`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" style={{ stopColor: car[kind].body[0] }} />
             <stop offset="1" style={{ stopColor: car[kind].body[1] }} />
@@ -68,7 +70,7 @@ export default function VehicleArt({ kind, size = 56 }: { kind: VehicleKind; siz
 
 
 
-      {(kind === "mini" || kind === "sedan" || kind === "suv") && (() => {
+      {(kind === "mini" || kind === "sedan") && (() => {
         const c = car[kind];
         const P = {
           mini: {
@@ -89,20 +91,10 @@ export default function VehicleArt({ kind, size = 56 }: { kind: VehicleKind; siz
             door: 60.5, lamp: "M6.5 30.5 L15.5 29.5 L15.5 32.5 L6.5 33.5z", grille: "M6.5 36 L16 35.6 L16 39.5 L6.5 40z",
             tail: "M92 29 L95 30 L95 33 L92.5 32.5z", stripe: true,
           },
-          suv: {
-            far: { cx: 11, cy: 46 }, near: [29, 81] as const, r: [7.6, 8.8] as const,
-            front: "M4 42 L4 30 Q4 26.5 8.5 25.5 L18 24.5 L18 46 L6 46 Q4 46 4 44z",
-            side: "M18 24.5 L32 23 L39.5 11 Q41 9 45 9 L85 9 Q88.5 9 89.5 12.5 L93 23.5 Q95.5 25 95.5 29.5 L95.5 42 Q95.5 46 91.5 46 L18 46z",
-            shield: "M18 24.5 L32 23 L39.5 11 L35 11.5 Q32 12.5 30 15.5 L21 23.6z",
-            win: ["M34.5 23 L41.5 12 L56 12 L56 23z", "M59 12 L72 12 L72 23 L59 23z", "M75 12 L85 12 Q87.3 12 88 14.2 L91 22.6 L75 23z"],
-            door: 57.5, lamp: "M5.5 28.5 L15.5 27.5 L15.5 31 L5.5 32z", grille: "M5.5 34 L16 33.4 L16 39 L5.5 39.6z",
-            tail: "M93 25.5 L95.5 26.5 L95.5 31 L93.5 30.5z", stripe: false,
-          },
         }[kind];
         return (
           <>
             <ellipse cx={P.far.cx} cy={P.far.cy} rx={4} ry={6.5} fill="#1a1e26" />
-            {kind === "suv" && <path d="M44 7.5 L86 7.5" stroke="#2a303c" strokeWidth="1.6" strokeLinecap="round" />}
             <path d={P.front} fill={c.front} />
             <path d={P.side} fill={`url(#${id}-body)`} />
             <path d={P.shield} fill={`url(#${id}-glass)`} />

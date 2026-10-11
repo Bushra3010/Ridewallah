@@ -9,7 +9,7 @@ drop type if exists vehicle_kind, service_kind, ride_status, pay_method, kyc_sta
 -- Run this whole file in Supabase → SQL Editor, then run supabase/seed.sql.
 
 -- ───────────── Enums ─────────────
-create type vehicle_kind   as enum ('bike', 'auto', 'mini', 'sedan', 'suv');
+create type vehicle_kind   as enum ('bike', 'auto', 'erick', 'mini', 'sedan', 'suv');
 create type service_kind   as enum ('ride', 'parcel');
 create type ride_status    as enum ('Searching', 'Assigned', 'Arriving', 'Arrived', 'Started', 'Completed', 'Cancelled', 'Scheduled');
 create type pay_method     as enum ('UPI', 'Cash', 'Card', 'Wallet');
@@ -229,9 +229,10 @@ create policy "public read" on incentives     for select using (true);
 insert into vehicles (id, name, tagline, seats, base, per_km, per_min, min_fare, cancel_fee, eta, enabled, ac_option, parcel_max_kg, sort) values
   ('bike', 'Bike', 'Beat the traffic', 1, 20, 6, 1, 30, 15, 2, true, false, 10, 0),
   ('auto', 'Auto', 'No bargaining', 3, 30, 10, 1.5, 45, 20, 4, true, false, 50, 1),
-  ('mini', 'Mini', 'Compact hatchbacks', 4, 45, 12, 2, 80, 30, 5, true, true, 100, 2),
-  ('sedan', 'Sedan', 'Comfy rides, extra legroom', 4, 60, 15, 2, 110, 40, 6, true, true, 0, 3),
-  ('suv', 'SUV', 'Room for 6 + luggage', 6, 90, 20, 2.5, 160, 50, 8, true, true, 0, 4);
+  ('erick', 'E-Rickshaw', 'Electric, quiet and cheap', 4, 20, 7, 1, 30, 15, 3, true, false, 30, 2),
+  ('mini', 'Mini', 'Compact hatchbacks', 4, 45, 12, 2, 80, 30, 5, true, true, 100, 3),
+  ('sedan', 'Sedan', 'Comfy rides, extra legroom', 4, 60, 15, 2, 110, 40, 6, true, true, 0, 4),
+  ('suv', 'XL', 'Room for 6 + luggage', 6, 90, 20, 2.5, 160, 50, 8, true, true, 0, 5);
 
 insert into parcel_weights (id, label, kg, extra, sort) values
   ('w1', 'Up to 1 kg', 1, 0, 0),

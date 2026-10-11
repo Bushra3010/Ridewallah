@@ -53,3 +53,6 @@ next-env.d.ts
 
 # compiled server modules for tests
 /.test-build
+
+# Supabase CLI local state
+supabase/.temp/

@@ -2,7 +2,7 @@
  * The catalog (vehicles, parcel weights, coupons, hotspots, incentives) lives in Supabase — see lib/catalog.ts.
  * Everything else here is still sample data until those screens move to Supabase too. */
 
-export type VehicleKind = "bike" | "auto" | "mini" | "sedan" | "suv";
+export type VehicleKind = "bike" | "auto" | "erick" | "mini" | "sedan" | "suv";
 
 export interface Vehicle {
   id: VehicleKind;

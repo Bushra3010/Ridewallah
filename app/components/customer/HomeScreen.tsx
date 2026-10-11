@@ -7,10 +7,11 @@ import { BrandMark, Wordmark } from "../Brand";
 import MapView from "../MapView";
 import VehicleArt from "../VehicleArt";
 import ParcelArt from "../ParcelArt";
+import { AnyArt, RentalArt } from "../ServiceArt";
+import { AcPill } from "./BookingScreens";
 import { iconBtn } from "../ui";
 import { CURRENT_LOCATION, PLACES, type Place, type VehicleKind } from "../../lib/data";
 import type { ActiveRide } from "./types";
-import { AcPill } from "./BookingScreens";
 import { useCatalog } from "../../lib/CatalogProvider";
 
 interface HomeProps {
@@ -22,6 +23,7 @@ interface HomeProps {
   ac: boolean;
   onAcChange: (ac: boolean) => void;
   onParcel: () => void;
+  onRental: () => void;
   onQuick: (to: Place) => void;
   onTrack: () => void;
   onOffers: () => void;
@@ -43,7 +45,7 @@ const STATUS_LINE: Record<string, string> = {
 };
 
 export default function HomeScreen(p: HomeProps) {
-  const { vehicles } = useCatalog();
+  const vehicles = useCatalog().vehicles.filter((v) => v.enabled);
   const quick = PLACES.filter((x) => x.kind);
   return (
     <div style={{ paddingBottom: 24 }}>
@@ -106,6 +108,7 @@ export default function HomeScreen(p: HomeProps) {
         </div>
       </div>
 
+
       {/* ── Active ride ── */}
       {p.active && (
         <div style={{ padding: "16px 16px 0" }}>
@@ -134,10 +137,10 @@ export default function HomeScreen(p: HomeProps) {
           <p style={{ margin: 0, fontSize: 19, fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.02em" }}>Our Services</p>
         </div>
         {vehicles.some((v) => v.acOption) && (
-          <div role="radiogroup" aria-label="AC preference for cars" style={{ display: "flex", background: "var(--bg-secondary)", borderRadius: 999, padding: 3 }}>
+          <div role="radiogroup" aria-label="AC or Non-AC cars" style={{ display: "flex", background: "var(--bg-secondary)", borderRadius: 999, padding: 3 }}>
             {[true, false].map((on) => (
               <button key={String(on)} role="radio" aria-checked={p.ac === on} onClick={() => p.onAcChange(on)} style={{
-                border: "none", cursor: "pointer", borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 600,
+                border: "none", cursor: "pointer", borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700,
                 background: p.ac === on ? "var(--surface)" : "transparent", color: p.ac === on ? "var(--blue)" : "var(--ink-soft)",
                 boxShadow: p.ac === on ? "var(--shadow-sm)" : "none", display: "flex", alignItems: "center", gap: 4,
               }}>{on && <SnowIcon s={12} c={p.ac ? "var(--blue)" : "var(--ink-soft)"} />}{on ? "AC" : "Non-AC"}</button>
@@ -145,41 +148,29 @@ export default function HomeScreen(p: HomeProps) {
           </div>
         )}
       </div>
-      <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
-        {vehicles.map((v) => (
-          <button key={v.id} onClick={() => p.onSearch(v.id)} className="press" aria-label={v.acOption ? `${v.name} · ${p.ac ? "AC" : "Non-AC"}` : v.name} style={{
+      <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(4,1fr)", rowGap: 14, columnGap: 6 }}>
+        {[
+          ...vehicles.map((v) => ({ key: v.id, name: v.name, art: <VehicleArt kind={v.id} size={50} />, ac: v.acOption, onClick: () => p.onSearch(v.id) })),
+          { key: "any", name: "Book Any", art: <AnyArt size={50} />, ac: true, onClick: () => p.onSearch() },
+          { key: "rental", name: "Rental", art: <RentalArt size={48} />, ac: true, onClick: p.onRental },
+          { key: "parcel", name: "Parcel", art: <ParcelArt size={50} />, ac: false, onClick: p.onParcel },
+        ].map((s) => (
+          <button key={s.key} onClick={s.onClick} className="press" aria-label={s.ac ? `${s.name} · ${p.ac ? "AC" : "Non-AC"}` : s.name} style={{
             background: "none", border: "none", padding: 0, cursor: "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 7,
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 7, position: "relative",
           }}>
             <div style={{
-              position: "relative", width: "100%", maxWidth: 66, aspectRatio: "1 / 1", background: "var(--surface)", borderRadius: "28%",
+              position: "relative", width: "100%", maxWidth: 70, aspectRatio: "1 / 1", background: "var(--surface)", borderRadius: "28%",
               display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 6px 10px -2px rgba(15,23,41,0.16), 0 2px 4px rgba(15,23,41,0.06)",
             }}>
-              <VehicleArt kind={v.id} size={48} />
-              {v.acOption && <span style={{ position: "absolute", bottom: -7, left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap" }}><AcPill ac={p.ac} /></span>}
+              <span style={s.ac ? { marginTop: -10 } : undefined}>{s.art}</span>
+              {s.ac && <span style={{ position: "absolute", bottom: 5, left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap" }}><AcPill ac={p.ac} /></span>}
             </div>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: "var(--ink)" }}>{v.name}</span>
+            {s.key === "parcel" && <span style={{ position: "absolute", top: -6, right: 2, background: "var(--red)", color: "white", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6 }}>NEW</span>}
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap" }}>{s.name}</span>
           </button>
         ))}
-      </div>
-
-      {/* ── Parcel delivery ── */}
-      <div style={{ padding: "16px 16px 0" }}>
-        <button onClick={p.onParcel} className="press" style={{
-          width: "100%", border: "1px solid var(--line)", cursor: "pointer", textAlign: "left", borderRadius: 20, padding: "12px 14px 12px 8px",
-          background: "var(--surface)", display: "flex", alignItems: "center", gap: 10, boxShadow: "var(--shadow-card)",
-        }}>
-          <ParcelArt size={84} />
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 15.5, fontWeight: 700, color: "var(--ink)" }}>Send a Parcel</span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "var(--blue)", background: "var(--blue-tint)", borderRadius: 6, padding: "2px 6px" }}>NEW</span>
-            </span>
-            <span style={{ display: "block", fontSize: 12, color: "var(--ink-soft)", lineHeight: 1.45, marginTop: 1 }}>Documents, food, groceries &amp; more · up to 100 kg · same-hour delivery</span>
-          </span>
-          <ChevronRight s={18} c="var(--ink-mute)" />
-        </button>
       </div>
 
       <div style={{ paddingTop: 24 }}><PromoCarousel onOffers={p.onOffers} onRide={() => p.onSearch()} /></div>

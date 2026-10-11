@@ -380,8 +380,9 @@ export default function CustomerApp() {
               <HomeScreen
                 firstName={firstName} active={active} unread={unread}
                 onSearch={(prefer) => startBooking(undefined, prefer)}
-                ac={preferAc} onAcChange={(on) => { setPreferAc(on); writeAc(on); }}
+                ac={preferAc} onAcChange={(on) => { setPreferAc(on); writeAc(on); flash(on ? "AC vehicles selected" : "Non-AC vehicles selected"); }}
                 onParcel={() => startBooking(undefined, undefined, "parcel")}
+                onRental={() => flash("Hourly rentals are coming soon")}
                 onQuick={(to) => startBooking(to)}
                 onTrack={() => push(active?.status === "Completed" ? { k: "done" } : { k: "live" })}
                 onOffers={() => goTab("offers")}

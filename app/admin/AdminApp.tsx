@@ -297,12 +297,12 @@ export function AdminLogin() {
 /* ───────────────────────── Dashboard ───────────────────────── */
 
 function Dashboard({ rides, drivers, customers, pending, open, go }: { rides: Ride[]; drivers: Driver[]; customers: Customer[]; pending: number; open: number; go: (s: Section) => void }) {
-  const { vehicleById } = useCatalog();
+  const { vehicles, vehicleById } = useCatalog();
   const onlineNow = drivers.filter((d) => d.online && !d.suspended).length;
   const completed = rides.filter((r) => r.status === "Completed").length;
   const cancelled = rides.filter((r) => r.status === "Cancelled").length;
-  const byVehicle = (["sedan", "auto", "mini", "bike", "suv"] as const)
-    .map((k) => [k, rides.length ? Math.round((rides.filter((r) => r.vehicle === k).length / rides.length) * 100) : 0] as const)
+  const byVehicle = vehicles
+    .map(({ id: k }) => [k, rides.length ? Math.round((rides.filter((r) => r.vehicle === k).length / rides.length) * 100) : 0] as const)
     .sort((a, b) => b[1] - a[1]);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
