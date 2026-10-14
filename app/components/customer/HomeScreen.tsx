@@ -243,7 +243,7 @@ function PromoCarousel({ onOffers, onRide }: { onOffers: () => void; onRide: () 
               }}>View Offers <ArrowRight s={15} c="var(--blue-dark)" w={2.2} /></button>
             </div>
             <div style={{ flexShrink: 0, filter: "drop-shadow(0 10px 18px rgba(4,36,107,0.45))" }}>
-              <Image src="/vehicles/bike-lite.webp" alt="" aria-hidden="true" width={124} height={101} style={{ width: 124, height: 101, objectFit: "contain" }} />
+              <Image src="/vehicles/bike-lite.png" alt="" aria-hidden="true" width={124} height={101} style={{ width: 124, height: 101, objectFit: "contain" }} />
             </div>
           </div>, 0,
         )}
