@@ -5,8 +5,7 @@ Three apps in one Next.js project:
 
 | Route | App | For |
 |---|---|---|
-| `/` | Launcher | Pick an app |
-| `/customer` | Customer app | Book, track, pay and rate rides |
+| `/` | Customer app | Book, track, pay and rate rides |
 | `/rider` | Rider panel | For the person driving: KYC, go online, accept requests, run trips (waiting charge, cancel, SOS, navigation), earnings, wallet & instant payout, incentives, ratings & performance, hotspots, documents, preferences (auto-accept, Go Home, cash rides), refer & earn, support |
 | `/admin` | Admin panel | Dashboard, live rides, customers, riders/KYC, pricing, coupons, payments, reports, support, broadcasts |
 
@@ -27,7 +26,7 @@ Open http://localhost:3000 and pick an app. The mobile apps are capped at 430px 
 
 ## Where things live
 
-- `app/customer/CustomerApp.tsx`, `app/rider/RiderApp.tsx`, `app/admin/AdminApp.tsx` — app shells, navigation and demo state
+- `app/(customer)/CustomerApp.tsx`, `app/rider/RiderApp.tsx`, `app/admin/AdminApp.tsx` — app shells, navigation and demo state
 - `app/components/customer/`, `app/components/rider/` — screens (`RiderScreens.tsx` for home/request/trip/earnings/trips/account, `RiderPages.tsx` for wallet, incentives, performance, documents, preferences, etc.)
 - `app/components/` — shared UI (`ui.tsx`, `icons.tsx`, `MapView.tsx`, `VehicleArt.tsx`, `BottomNav.tsx`, `Auth.tsx`, `Brand.tsx`)
 - `app/lib/data.ts` — vehicle categories & fare rules, places, rides, drivers, customers, coupons, rider hotspots/incentives/wallet

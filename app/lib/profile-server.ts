@@ -6,6 +6,7 @@ import { prettyPhone, toCustomer, toDriver } from "./mappers";
 
 export interface ProfileInput { name: string; email: string; phone: string; city?: string }
 
+const BLOCKED = "Your account is blocked — profile changes aren't allowed";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function userId(token: string) {
@@ -30,6 +31,8 @@ const friendly = (message: string) =>
 
 export async function saveCustomerProfile(token: string, p: ProfileInput) {
   const uid = await userId(token);
+  const { data: me } = await db.from("customers").select("blocked").eq("user_id", uid).maybeSingle();
+  if (me?.blocked) throw new Error(BLOCKED);
   const { data, error } = await db.from("customers").update(clean(p)).eq("user_id", uid).select().maybeSingle();
   if (error) throw new Error(friendly(error.message));
   if (!data) throw new Error("Profile not found");
@@ -40,6 +43,8 @@ export async function saveRiderProfile(token: string, p: ProfileInput) {
   const uid = await userId(token);
   const city = String(p.city ?? "").trim();
   if (city.length < 2 || city.length > 40) throw new Error("Choose your city");
+  const { data: me } = await db.from("drivers").select("suspended").eq("user_id", uid).maybeSingle();
+  if (me?.suspended) throw new Error(BLOCKED);
   const { data, error } = await db.from("drivers").update({ ...clean(p), city }).eq("user_id", uid).select().maybeSingle();
   if (error) throw new Error(friendly(error.message));
   if (!data) throw new Error("Rider profile not found");

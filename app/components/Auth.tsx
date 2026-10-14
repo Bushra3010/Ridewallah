@@ -1,9 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, BackIcon, BellIcon, PinIcon, CheckIcon } from "./icons";
+import { ArrowRight, BackIcon, BellIcon, PinIcon, CheckIcon, XIcon } from "./icons";
 import { PrimaryButton, card, field, iconBtn, label } from "./ui";
 import { INVALID_EMAIL } from "../lib/account";
+
+/** Shown to a signed-in customer or rider whose account an admin has blocked. The only way out is logging out —
+ * no booking, trips or profile changes are reachable from here (the server refuses them too). */
+export function AccountBlocked({ name, support, onLogout }: { name: string; support: string; onLogout: () => void }) {
+  return (
+    <div className="fade-up" style={{ position: "absolute", inset: 0, zIndex: 190, background: "var(--app-bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, textAlign: "center" }}>
+      <div style={{ width: 96, height: 96, borderRadius: "50%", background: "color-mix(in srgb, var(--red) 12%, transparent)", display: "flex", alignItems: "center", justifyContent: "center" }}><XIcon s={44} c="var(--red)" w={2.4} /></div>
+      <h1 style={{ margin: "20px 0 6px", fontSize: 24, fontWeight: 800 }}>Your account is blocked</h1>
+      <p style={{ margin: 0, fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>
+        Sorry{name ? `, ${name.split(" ")[0]}` : ""} — your account has been blocked by Ridewallah, so you can&apos;t use the app or make changes to your account right now.
+      </p>
+      <div style={{ ...card, width: "100%", padding: 14, marginTop: 22, fontSize: 13.5, color: "var(--ink)" }}>
+        If you think this is a mistake, contact <a href={`mailto:${support}`} style={{ color: "var(--blue)", fontWeight: 600 }}>{support}</a>
+      </div>
+      <button onClick={onLogout} style={{ marginTop: 20, background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Log out</button>
+    </div>
+  );
+}
 
 /** Brand splash — royal blue with the white Ridewallah logo. */
 export function SplashScreen({ tagline, cta = "Get Started", onStart, footer }: {

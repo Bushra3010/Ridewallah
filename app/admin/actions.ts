@@ -7,7 +7,7 @@ import { headers } from "next/headers";
 import { checkCredentials, endSession, requireAdmin, startSession } from "../lib/admin-auth";
 import { supabaseAdmin } from "../lib/supabase/admin";
 import { invalidateCatalog } from "../lib/catalog";
-import { adminCancelRide, releaseRider } from "../lib/rides-server";
+import { adminCancelRide, releaseCustomer, releaseRider } from "../lib/rides-server";
 import { AUDIENCES, type Coupon, type Driver, type Settings, type Ticket, type Vehicle } from "../lib/data";
 
 export type Result = { error?: string };
@@ -24,7 +24,7 @@ async function run(fn: () => PromiseLike<{ error: { message: string } | null } |
 }
 
 /** Catalog edits show up in the customer and rider apps on their next load. */
-const refreshApps = () => { invalidateCatalog(); revalidatePath("/"); revalidatePath("/customer"); revalidatePath("/rider"); };
+const refreshApps = () => { invalidateCatalog(); revalidatePath("/"); revalidatePath("/rider"); };
 
 /* ───────── Session ───────── */
 
@@ -78,7 +78,12 @@ export async function closeRide(rideId: string, reason: string) {
 }
 
 export async function setCustomerBlocked(id: string, blocked: boolean) {
-  return run(() => supabaseAdmin.from("customers").update({ blocked: !!blocked }).eq("id", String(id)));
+  return run(async () => {
+    const res = await supabaseAdmin.from("customers").update({ blocked: !!blocked }).eq("id", String(id));
+    if (res.error) return res;
+    // A blocked customer's live rides are closed, so no rider is left stuck on them.
+    if (blocked) await releaseCustomer(String(id));
+  });
 }
 
 /* ───────── Support ───────── */

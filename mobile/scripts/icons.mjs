@@ -1,5 +1,5 @@
 // Generates Android and iOS launcher icons and splash screens for both apps from the web app's SVG icons
-// (app/customer/icon.svg, app/rider/icon.svg) and the logo's pin mark. Run: npm run icons
+// (app/icon.svg, app/rider/icon.svg) and the logo's pin mark. Run: npm run icons
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,7 +10,7 @@ const root = path.resolve(here, "../..");
 const sharp = createRequire(path.join(root, "package.json"))("sharp"); // the web app already ships sharp
 
 const APPS = {
-  customer: { icon: "app/customer/icon.svg", splash: "#0b5cff" },
+  customer: { icon: "app/icon.svg", splash: "#0b5cff" },
   rider: { icon: "app/rider/icon.svg", splash: "#1e3a8a" },
 };
 const DENSITIES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };

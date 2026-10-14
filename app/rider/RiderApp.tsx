@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav, { HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph, WalletGlyph } from "../components/BottomNav";
-import { EmailLogin, ForgotPassword, NewPassword, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
+import { AccountBlocked, EmailLogin, ForgotPassword, NewPassword, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import { KycFlow, PendingApproval } from "../components/rider/Kyc";
 import {
   AlertsScreen, EarningsScreen, RequestPopup, RiderAccount, RiderHome, TripPage, TripsScreen,
@@ -26,9 +26,11 @@ const SHELL_MAX_W = 430;
 const POLL_MS = 3000;
 /** How often the "verification in progress" screen re-checks for admin approval. */
 const APPROVAL_POLL_MS = 8000;
+/** How often an open app re-checks whether an admin has suspended the account. */
+const BLOCK_POLL_MS = 15000;
 
 type Tab = "home" | "earnings" | "trips" | "incentives" | "account";
-type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "kyc" | "pending" | "app";
+type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "kyc" | "pending" | "app" | "blocked";
 type Detail =
   | { k: "alerts" } | { k: "support" } | { k: "trip"; id: string }
   | { k: "wallet" } | { k: "performance" } | { k: "hotspots" }
@@ -38,7 +40,7 @@ type Detail =
 /** Placeholder until the signed-in rider's profile loads. */
 const NO_RIDER: Driver = { id: "", name: "", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Pending", online: false, joined: "", earnings: 0 };
 
-const SUSPENDED = "Your rider account is suspended. Please contact rider support.";
+const SUPPORT_EMAIL = "support@ridewallah.in";
 
 let txSeq = 400;
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
@@ -77,14 +79,19 @@ export default function RiderApp() {
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  /** Suspended by an admin → only the blocked screen and Log out are left. */
+  const lockOut = useCallback(() => {
+    setOnline(false); setRequest(null); setTrip(null); setSheet(null); setStack([]); setTab("home"); setStage("blocked");
+  }, []);
+
   /** Signed in → route by KYC status and load the rider's own activity. Returns an error message, or null. */
   const enter = useCallback(async (): Promise<string | null> => {
     try {
       const d = await loadRider();
       if (!d) { setSignup(await signUpDetails()); setStage("kyc"); return null; }
       setRider(d);
+      if (d.suspended) { lockOut(); return null; }
       if (d.kyc !== "Approved") { setStage("pending"); return null; }
-      if (d.suspended) { await signOut(); setStage("splash"); return SUSPENDED; }
       const token = await accessToken();
       const res = token ? await myActivity(token) : { data: undefined, error: "Please log in again" };
       if (!res.data) throw new Error(res.error ?? "Couldn't load your trips");
@@ -123,12 +130,23 @@ export default function RiderApp() {
     const t = setInterval(async () => {
       const d = await loadRider().catch(() => null);
       if (!d) return;
+      if (d.suspended) { setRider(d); lockOut(); return; }
       if (d.kyc === "Approved") { await enter(); flash("You're approved! Go online to start earning 🎉"); }
       else setRider(d);
     }, APPROVAL_POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flash is recreated each render
   }, [stage, enter]);
+
+  // Suspended by an admin while the app is open → lock it straight away.
+  useEffect(() => {
+    if (stage !== "app") return;
+    const t = setInterval(async () => {
+      const d = await loadRider().catch(() => null);
+      if (d?.suspended) { setRider(d); lockOut(); }
+    }, BLOCK_POLL_MS);
+    return () => clearInterval(t);
+  }, [stage, lockOut]);
 
   const detail = stack[stack.length - 1];
   const detailKey = detail ? JSON.stringify(detail) : tab;
@@ -374,6 +392,7 @@ export default function RiderApp() {
             }
           }} />
         )}
+        {stage === "blocked" && <AccountBlocked name={rider.name} support={SUPPORT_EMAIL} onLogout={logout} />}
         {stage === "pending" && <PendingApproval name={rider.name} rejected={rider.kyc === "Rejected"} onLogout={logout} />}
 
         {stage === "app" && (detail?.k === "support" ? (

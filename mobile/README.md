@@ -18,7 +18,7 @@ Needs JDK 21, the Android SDK (platform 36) and Node 22+ for the Capacitor CLI (
 cd mobile
 npm install
 npm run apk          # debug APKs → mobile/dist/
-npm run icons        # regenerate icons/splash from app/customer/icon.svg and app/rider/icon.svg
+npm run icons        # regenerate icons/splash from app/icon.svg and app/rider/icon.svg
 ```
 
 `npm run apk -- release` builds unsigned release APKs. For the Play Store you'll need a signing key (keep it

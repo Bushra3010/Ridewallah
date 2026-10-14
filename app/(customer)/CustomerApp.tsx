@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import BottomNav, { ChatGlyph, HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph } from "../components/BottomNav";
-import { EmailLogin, ForgotPassword, NewPassword, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
+import { AccountBlocked, EmailLogin, ForgotPassword, NewPassword, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import HomeScreen from "../components/customer/HomeScreen";
 import { ChooseRidePage, ConfirmPage, LiveRidePage, ParcelPage, SearchPage, TripDonePage } from "../components/customer/BookingScreens";
 import {
@@ -29,7 +29,7 @@ import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, re
 const SHELL_MAX_W = 430;
 
 type Tab = "home" | "rides" | "offers" | "support" | "profile";
-type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "setup" | "perm" | "app";
+type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "setup" | "perm" | "app" | "blocked";
 
 type Detail =
   | { k: "search"; to?: Place; prefer?: VehicleKind; service?: Service }
@@ -47,7 +47,9 @@ type Detail =
 /** Placeholder until the signed-in customer's profile loads. */
 const NO_USER: Customer = { id: "", name: "", initials: "", phone: "", email: "", rides: 0, spent: 0, rating: 5, joined: "", complaints: 0 };
 
-const BLOCKED = "This account has been blocked. Please contact support@ridewallah.in.";
+const SUPPORT_EMAIL = "support@ridewallah.in";
+/** How often an open app re-checks whether an admin has blocked the account. */
+const BLOCK_POLL_MS = 15000;
 const RIDER_LOGIN = "This is a rider account. Riders use the Rider app at /rider.";
 
 /** The AC / Non-AC choice on the home screen is remembered on this device. */
@@ -103,7 +105,7 @@ export default function CustomerApp() {
         if (await isRiderLogin()) { await signOut(); setStage("login"); return RIDER_LOGIN; }
         const d = await signUpDetails(); setSetupInitial({ name: d.name, phone: d.phone }); setStage("setup"); return null;
       }
-      if (c.blocked) { await signOut(); setStage("splash"); return BLOCKED; }
+      if (c.blocked) { setUser(c); setStack([]); setActive(null); setStage("blocked"); return null; }
       setUser(c);
       setRides(await fetchRides());
       await resumeRide();
@@ -132,6 +134,16 @@ export default function CustomerApp() {
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
+
+  // Blocked by an admin while the app is open → lock it straight away.
+  useEffect(() => {
+    if (stage !== "app" && stage !== "perm") return;
+    const t = setInterval(async () => {
+      const c = await loadCustomer().catch(() => null);
+      if (c?.blocked) { setUser(c); setStack([]); setActive(null); setStage("blocked"); }
+    }, BLOCK_POLL_MS);
+    return () => clearInterval(t);
+  }, [stage]);
 
   const detail = stack[stack.length - 1];
   const detailKey = detail ? JSON.stringify(detail) : tab;
@@ -327,6 +339,7 @@ export default function CustomerApp() {
           }} />
         )}
         {stage === "perm" && <PermissionStep onDone={() => setStage("app")} />}
+        {stage === "blocked" && <AccountBlocked name={user.name} support={SUPPORT_EMAIL} onLogout={logout} />}
 
         {stage === "app" && (chatFull ? (
           <div style={{ flex: 1, minHeight: 0, paddingBottom: showNav ? "calc(76px + env(safe-area-inset-bottom))" : undefined }}>

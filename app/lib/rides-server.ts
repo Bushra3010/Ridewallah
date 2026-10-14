@@ -431,6 +431,12 @@ export async function releaseRider(driverId: string) {
   await db.from("drivers").update({ online: false }).eq("id", driverId);
 }
 
+/** On blocking: the customer's searching and live rides are closed, so no rider is left waiting on them. */
+export async function releaseCustomer(customerId: string) {
+  await db.from("rides").update({ status: "Cancelled", cancel_reason: "Closed by Ridewallah: customer account blocked", offered_to: null, offer_expires_at: null })
+    .eq("customer_id", customerId).in("status", ["Searching", ...ACTIVE]);
+}
+
 /* ───────── Histories (B13: names come from the server, not from reading each other's profiles) ───────── */
 
 export async function historyForCustomer(token: string) {
