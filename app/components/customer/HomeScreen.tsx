@@ -35,6 +35,9 @@ const greeting = () => {
   return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 };
 
+/** Shown at the end of the services grid, after Book Any, Rental and Parcel. */
+const LAST: VehicleKind[] = ["auto", "erick"];
+
 const STATUS_LINE: Record<string, string> = {
   Searching: "Finding a driver near you…",
   Assigned: "Driver assigned",
@@ -46,6 +49,8 @@ const STATUS_LINE: Record<string, string> = {
 
 export default function HomeScreen(p: HomeProps) {
   const vehicles = useCatalog().vehicles.filter((v) => v.enabled);
+  const tiles = (list: typeof vehicles) =>
+    list.map((v) => ({ key: v.id, name: v.name, art: <VehicleArt kind={v.id} size={50} />, ac: v.acOption, onClick: () => p.onSearch(v.id) }));
   const quick = PLACES.filter((x) => x.kind);
   return (
     <div style={{ paddingBottom: 24 }}>
@@ -150,10 +155,11 @@ export default function HomeScreen(p: HomeProps) {
       </div>
       <div style={{ padding: "12px 12px 0", display: "grid", gridTemplateColumns: "repeat(4,1fr)", rowGap: 14, columnGap: 6 }}>
         {[
-          ...vehicles.map((v) => ({ key: v.id, name: v.name, art: <VehicleArt kind={v.id} size={50} />, ac: v.acOption, onClick: () => p.onSearch(v.id) })),
+          ...tiles(vehicles.filter((v) => !LAST.includes(v.id))),
           { key: "any", name: "Book Any", art: <AnyArt size={50} />, ac: true, onClick: () => p.onSearch() },
           { key: "rental", name: "Rental", art: <RentalArt size={48} />, ac: true, onClick: p.onRental },
           { key: "parcel", name: "Parcel", art: <ParcelArt size={50} />, ac: false, onClick: p.onParcel },
+          ...tiles(vehicles.filter((v) => LAST.includes(v.id))),
         ].map((s) => (
           <button key={s.key} onClick={s.onClick} className="press" aria-label={s.ac ? `${s.name} · ${p.ac ? "AC" : "Non-AC"}` : s.name} style={{
             background: "none", border: "none", padding: 0, cursor: "pointer",
