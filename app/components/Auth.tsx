@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, BackIcon, BellIcon, PinIcon, CheckIcon } from "./icons";
 import { PrimaryButton, card, field, iconBtn, label } from "./ui";
+import { INVALID_EMAIL } from "../lib/account";
 
 /** Brand splash — royal blue with the white Ridewallah logo. */
 export function SplashScreen({ tagline, cta = "Get Started", onStart, footer }: {
@@ -240,12 +241,27 @@ export function SignUpForm({ title, accent, body, cta = "Create account", switch
           <PasswordInput id="sp" value={d.password} onChange={(password) => set({ password })} autoComplete="new-password" />
           <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: d.password && d.password.length < MIN_PASSWORD ? "var(--red)" : "var(--ink-mute)" }}>At least {MIN_PASSWORD} characters</p>
         </div>
-        <Err msg={err} />
+        <Err msg={err === INVALID_EMAIL ? "" : err} />
         <PrimaryButton type="submit" disabled={!!problem || busy}>{busy ? "Creating account…" : cta}</PrimaryButton>
         <Switch to={switchTo} />
         <Terms />
       </form>
+      {err === INVALID_EMAIL && <InvalidEmailPopup onClose={() => { setErr(""); document.getElementById("se")?.focus(); }} />}
     </Shell>
+  );
+}
+
+/** Blocks sign-up until the person fixes an email whose domain can't receive mail. */
+function InvalidEmailPopup({ onClose }: { onClose: () => void }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(10,20,40,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div role="alertdialog" aria-modal="true" aria-labelledby="ie-title" aria-describedby="ie-body" onClick={(e) => e.stopPropagation()} className="fade-up"
+        style={{ ...card, width: "100%", maxWidth: 340, padding: 22, textAlign: "center" }}>
+        <p id="ie-title" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--ink)" }}>Invalid email</p>
+        <p id="ie-body" style={{ margin: "8px 0 18px", fontSize: 14, color: "var(--ink-soft)" }}>{INVALID_EMAIL} We couldn&apos;t find a mail server for this address — check it for typos.</p>
+        <PrimaryButton onClick={onClose}>OK</PrimaryButton>
+      </div>
+    </div>
   );
 }
 

@@ -1,6 +1,7 @@
 /* Customer & rider accounts in the browser: email + password sign-in plus loading the signed-in person's own data.
  * Everything here runs with the anon key + the user's session, so row-level security decides what comes back. */
 import { supabase } from "./supabase/client";
+import { emailCanReceiveMail } from "./email-check";
 import { prettyPhone, toCustomer, toDriver } from "./mappers";
 import type { Customer, Driver, VehicleKind } from "./data";
 
@@ -10,7 +11,7 @@ function friendly(message: string) {
   if (/already registered|already been registered|user already exists/i.test(message)) return "An account with this email already exists — please log in.";
   if (/email not confirmed/i.test(message)) return "Please confirm your email first — check your inbox for the link.";
   if (/password should be|weak password/i.test(message)) return "Choose a stronger password (at least 8 characters).";
-  if (/unable to validate email|invalid email|email address .* is invalid/i.test(message)) return "Please enter a valid email address.";
+  if (/unable to validate email|invalid email|email address .* is invalid/i.test(message)) return INVALID_EMAIL;
   if (/rate limit|too many|security purposes/i.test(message)) return "Too many attempts — please wait a minute and try again.";
   if (/customers_phone_key|drivers_phone_key/i.test(message)) return "This mobile number is already registered with another account.";
   if (/drivers_plate_key/i.test(message)) return "That vehicle number is already registered.";
@@ -21,8 +22,12 @@ function friendly(message: string) {
 
 export interface SignUp { name: string; email: string; phone: string; password: string }
 
+/** Shown (as a popup on the sign-up form) when the email can't be a real address. */
+export const INVALID_EMAIL = "Please enter a valid email address.";
+
 /** Creates the login (name and mobile ride along as metadata for later profile steps). Returns an error message, or null. */
 export async function signUp(p: SignUp) {
+  if (!(await emailCanReceiveMail(p.email))) return INVALID_EMAIL;
   const { data, error } = await supabase.auth.signUp({
     email: p.email.trim(), password: p.password,
     options: { data: { name: p.name.trim(), phone: prettyPhone(p.phone) } },
