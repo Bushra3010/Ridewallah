@@ -123,8 +123,8 @@ function useSubmit() {
 }
 
 /** Email + password log-in. `onSubmit` returns an error message or null. */
-export function EmailLogin({ title, accent, body = "Log in with the email and password you signed up with.", switchTo, onSubmit }: {
-  title: string; accent: string; body?: string; switchTo?: SwitchTo;
+export function EmailLogin({ title, accent, body = "Log in with the email and password you signed up with.", switchTo, onForgot, onSubmit }: {
+  title: string; accent: string; body?: string; switchTo?: SwitchTo; onForgot?: () => void;
   onSubmit: (email: string, password: string) => Promise<string | null>;
 }) {
   const [email, setEmail] = useState("");
@@ -137,11 +137,80 @@ export function EmailLogin({ title, accent, body = "Log in with the email and pa
       <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) run(() => onSubmit(email, password)); }} onChange={() => setErr("")}
         style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
         <div><label style={label} htmlFor="le">Email</label><input id="le" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={field} autoComplete="email" /></div>
-        <div><label style={label} htmlFor="lp">Password</label><PasswordInput id="lp" value={password} onChange={setPassword} autoComplete="current-password" /></div>
+        <div>
+          <label style={label} htmlFor="lp">Password</label>
+          <PasswordInput id="lp" value={password} onChange={setPassword} autoComplete="current-password" />
+          {onForgot && (
+            <div style={{ textAlign: "right", marginTop: 8 }}>
+              <button type="button" onClick={onForgot} style={{ background: "none", border: "none", padding: 0, color: "var(--blue)", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Forgot password?</button>
+            </div>
+          )}
+        </div>
         <Err msg={err} />
         <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Logging in…" : "Log in"}</PrimaryButton>
         <Switch to={switchTo} />
         <Terms />
+      </form>
+    </Shell>
+  );
+}
+
+/** Asks for the account email and sends a reset link. `onSubmit` returns an error message or null. */
+export function ForgotPassword({ onBack, onSubmit }: { onBack: () => void; onSubmit: (email: string) => Promise<string | null> }) {
+  const [email, setEmail] = useState("");
+  const [sentTo, setSentTo] = useState("");
+  const { busy, err, setErr, run } = useSubmit();
+  const ok = EMAIL.test(email.trim());
+  if (sentTo) return (
+    <Shell onBack={onBack}>
+      <H title="Check your" accent="inbox" body={`If an account exists for ${sentTo}, we've sent a link to reset your password. Open it on this device. It may take a minute to arrive, so check your spam folder too.`} />
+      <div style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 14, flex: 1 }}>
+        <PrimaryButton onClick={onBack}>Back to log in</PrimaryButton>
+        <Switch to={{ prompt: "Didn't get it?", cta: "Send again", onClick: () => setSentTo("") }} />
+      </div>
+    </Shell>
+  );
+  return (
+    <Shell onBack={onBack}>
+      <H title="Forgot your" accent="password?" body="Enter the email you signed up with and we'll send you a link to set a new password." />
+      <form onSubmit={(e) => {
+        e.preventDefault();
+        if (ok && !busy) run(async () => { const e = await onSubmit(email); if (!e) setSentTo(email.trim()); return e; });
+      }} onChange={() => setErr("")}
+        style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+        <div><label style={label} htmlFor="fe">Email</label><input id="fe" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={field} autoComplete="email" /></div>
+        <Err msg={err} />
+        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Sending…" : "Send reset link"}</PrimaryButton>
+      </form>
+    </Shell>
+  );
+}
+
+/** Choose a new password after opening a reset link. `onSubmit` returns an error message or null. */
+export function NewPassword({ onSubmit, onCancel }: { onSubmit: (password: string) => Promise<string | null>; onCancel: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const { busy, err, setErr, run } = useSubmit();
+  const mismatch = confirm.length > 0 && confirm !== password;
+  const ok = password.length >= MIN_PASSWORD && confirm === password;
+  return (
+    <Shell>
+      <H title="Set a new" accent="password" body="Choose a new password for your account. You'll use it to log in from now on." />
+      <form onSubmit={(e) => { e.preventDefault(); if (ok && !busy) run(() => onSubmit(password)); }} onChange={() => setErr("")}
+        style={{ padding: "28px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+        <div>
+          <label style={label} htmlFor="np">New password</label>
+          <PasswordInput id="np" value={password} onChange={setPassword} autoComplete="new-password" />
+          <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: password && password.length < MIN_PASSWORD ? "var(--red)" : "var(--ink-mute)" }}>At least {MIN_PASSWORD} characters</p>
+        </div>
+        <div>
+          <label style={label} htmlFor="npc">Confirm new password</label>
+          <PasswordInput id="npc" value={confirm} onChange={setConfirm} autoComplete="new-password" />
+          {mismatch && <p style={{ margin: "6px 2px 0", fontSize: 11.5, color: "var(--red)" }}>Passwords don&apos;t match</p>}
+        </div>
+        <Err msg={err} />
+        <PrimaryButton type="submit" disabled={!ok || busy}>{busy ? "Saving…" : "Save new password"}</PrimaryButton>
+        <Switch to={{ prompt: "Remembered it?", cta: "Cancel", onClick: onCancel }} />
       </form>
     </Shell>
   );

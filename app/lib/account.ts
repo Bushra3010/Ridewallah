@@ -38,6 +38,38 @@ export async function signIn(email: string, password: string) {
   return error ? friendly(error.message) : null;
 }
 
+/* ───────── Forgotten password ───────── */
+
+/* Read the reset link's URL fragment now, at module load: the Supabase client swaps it for a session and wipes
+ * it from the address bar shortly after, and that session alone can't be told apart from a normal sign-in. */
+const hash = new URLSearchParams(typeof window !== "undefined" ? window.location.hash.slice(1) : "");
+const recoveryLink = hash.get("type") === "recovery";
+const linkError = hash.get("error_code") === "otp_expired"
+  ? "That reset link has expired or was already used — please request a new one."
+  : hash.get("error_description");
+
+/** "recovery" when the page was opened from a reset-password email, an error message when that link was bad, else null. */
+export function resetLinkState(): "recovery" | string | null {
+  return recoveryLink ? "recovery" : linkError;
+}
+
+/** Emails a reset link that comes back to this same app (customer or rider). Returns an error message, or null. */
+export async function sendPasswordReset(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: window.location.origin + window.location.pathname,
+  });
+  return error ? friendly(error.message) : null;
+}
+
+/** Sets a new password for the session opened by the reset link. Returns an error message, or null. */
+export async function updatePassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (!error) return null;
+  if (/same.*password|different from the old/i.test(error.message)) return "Your new password must be different from your old one.";
+  if (/session|jwt|not authenticated/i.test(error.message)) return "That reset link has expired — please request a new one.";
+  return friendly(error.message);
+}
+
 /** Name, email and mobile given at sign-up — used to prefill profile and KYC steps. */
 export async function signUpDetails() {
   const { data } = await supabase.auth.getUser();

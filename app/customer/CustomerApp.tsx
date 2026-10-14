@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import BottomNav, { ChatGlyph, HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph } from "../components/BottomNav";
-import { EmailLogin, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
+import { EmailLogin, ForgotPassword, NewPassword, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import HomeScreen from "../components/customer/HomeScreen";
 import { ChooseRidePage, ConfirmPage, LiveRidePage, ParcelPage, SearchPage, TripDonePage } from "../components/customer/BookingScreens";
 import {
@@ -24,12 +24,12 @@ async function fetchRides(): Promise<Ride[]> {
   return data;
 }
 import { EditProfilePage } from "../components/EditProfile";
-import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, resetLinkState, sendPasswordReset, signIn, signOut, signUp, signUpDetails, updatePassword } from "../lib/account";
 
 const SHELL_MAX_W = 430;
 
 type Tab = "home" | "rides" | "offers" | "support" | "profile";
-type Stage = "splash" | "login" | "signup" | "setup" | "perm" | "app";
+type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "setup" | "perm" | "app";
 
 type Detail =
   | { k: "search"; to?: Place; prefer?: VehicleKind; service?: Service }
@@ -115,7 +115,11 @@ export default function CustomerApp() {
   };
 
   // Returning customers skip login (Supabase keeps the session in this browser).
+  // Opened from a reset-password email → choose a new password first (that link also signs them in).
   useEffect(() => {
+    const link = resetLinkState();
+    if (link === "recovery") { setStage("reset"); return; }
+    if (link) { setStage("login"); flash(link); return; }
     let live = true;
     const shown = Date.now();
     hasSession().then(async (yes) => {
@@ -289,7 +293,18 @@ export default function CustomerApp() {
         {stage === "login" && (
           <EmailLogin title="Welcome to" accent="Ridewallah"
             switchTo={{ prompt: "New to Ridewallah?", cta: "Create an account", onClick: () => setStage("signup") }}
+            onForgot={() => setStage("forgot")}
             onSubmit={async (email, password) => (await signIn(email, password)) ?? (await enter())} />
+        )}
+        {stage === "forgot" && <ForgotPassword onBack={() => setStage("login")} onSubmit={sendPasswordReset} />}
+        {stage === "reset" && (
+          <NewPassword onCancel={logout} onSubmit={async (password) => {
+            const err = await updatePassword(password);
+            if (err) return err;
+            const e = await enter();
+            if (!e) flash("Password updated");
+            return e;
+          }} />
         )}
         {stage === "signup" && (
           <SignUpForm title="Create your" accent="Ridewallah account" body="Book rides and parcels in a few taps. Your mobile number lets drivers reach you."

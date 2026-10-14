@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav, { HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph, WalletGlyph } from "../components/BottomNav";
-import { EmailLogin, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
+import { EmailLogin, ForgotPassword, NewPassword, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import { KycFlow, PendingApproval } from "../components/rider/Kyc";
 import {
   AlertsScreen, EarningsScreen, RequestPopup, RiderAccount, RiderHome, TripPage, TripsScreen,
@@ -16,7 +16,7 @@ import { ChatScreen, type ChatMessage } from "../components/customer/AccountScre
 import { DemoButton, Toast } from "../components/ui";
 import { inr, nowTime, type Driver, type Ride, type WalletTxn } from "../lib/data";
 import { useCatalog } from "../lib/CatalogProvider";
-import { FieldError, accessToken, hasSession, loadRider, registerRider, setRiderOnline, signIn, signOut, signUp, signUpDetails } from "../lib/account";
+import { FieldError, accessToken, hasSession, loadRider, registerRider, resetLinkState, sendPasswordReset, setRiderOnline, signIn, signOut, signUp, signUpDetails, updatePassword } from "../lib/account";
 import type { Feedback } from "../lib/mappers";
 import { EditProfilePage } from "../components/EditProfile";
 import { myActivity, updateRiderProfile, acceptRide, advanceRide, cancelTrip as cancelTripOnServer, cashCollected, declineRide, riderPoll } from "./actions";
@@ -28,7 +28,7 @@ const POLL_MS = 3000;
 const APPROVAL_POLL_MS = 8000;
 
 type Tab = "home" | "earnings" | "trips" | "incentives" | "account";
-type Stage = "splash" | "login" | "signup" | "kyc" | "pending" | "app";
+type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "kyc" | "pending" | "app";
 type Detail =
   | { k: "alerts" } | { k: "support" } | { k: "trip"; id: string }
   | { k: "wallet" } | { k: "performance" } | { k: "hotspots" }
@@ -99,7 +99,11 @@ export default function RiderApp() {
   }, []);
 
   // Returning riders skip login (Supabase keeps the session in this browser).
+  // Opened from a reset-password email → choose a new password first (that link also signs them in).
   useEffect(() => {
+    const link = resetLinkState();
+    if (link === "recovery") { setStage("reset"); return; }
+    if (link) { setStage("login"); flash(link); return; }
     let live = true;
     const shown = Date.now();
     hasSession().then(async (yes) => {
@@ -340,7 +344,18 @@ export default function RiderApp() {
         {stage === "login" && (
           <EmailLogin title="Welcome, Rider" accent="Let's get you earning"
             switchTo={{ prompt: "New rider?", cta: "Create an account", onClick: () => setStage("signup") }}
+            onForgot={() => setStage("forgot")}
             onSubmit={async (email, password) => (await signIn(email, password)) ?? (await enter())} />
+        )}
+        {stage === "forgot" && <ForgotPassword onBack={() => setStage("login")} onSubmit={sendPasswordReset} />}
+        {stage === "reset" && (
+          <NewPassword onCancel={logout} onSubmit={async (password) => {
+            const err = await updatePassword(password);
+            if (err) return err;
+            const e = await enter();
+            if (!e) flash("Password updated");
+            return e;
+          }} />
         )}
         {stage === "signup" && (
           <SignUpForm title="Become a" accent="Ridewallah rider" cta="Create account & continue"
