@@ -5,20 +5,16 @@ import { ArrowRight, BackIcon, BellIcon, PinIcon, CheckIcon, XIcon } from "./ico
 import { PrimaryButton, card, field, iconBtn, label } from "./ui";
 import { INVALID_EMAIL } from "../lib/account";
 
-/** Shown to a signed-in customer or rider whose account an admin has blocked. The only way out is logging out —
- * no booking, trips or profile changes are reachable from here (the server refuses them too). */
-export function AccountBlocked({ name, support, onLogout }: { name: string; support: string; onLogout: () => void }) {
+/** Banner across the top of the app for a customer or rider whose account an admin has blocked. They can still look
+ * around (profile, history), but booking, taking rides and profile changes are locked — and the server refuses them too. */
+export function BlockedBanner({ support }: { support: string }) {
   return (
-    <div className="fade-up" style={{ position: "absolute", inset: 0, zIndex: 190, background: "var(--app-bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, textAlign: "center" }}>
-      <div style={{ width: 96, height: 96, borderRadius: "50%", background: "color-mix(in srgb, var(--red) 12%, transparent)", display: "flex", alignItems: "center", justifyContent: "center" }}><XIcon s={44} c="var(--red)" w={2.4} /></div>
-      <h1 style={{ margin: "20px 0 6px", fontSize: 24, fontWeight: 800 }}>Your account is blocked</h1>
-      <p style={{ margin: 0, fontSize: 14, color: "var(--ink-soft)", lineHeight: 1.55 }}>
-        Sorry{name ? `, ${name.split(" ")[0]}` : ""} — your account has been blocked by Ridewallah, so you can&apos;t use the app or make changes to your account right now.
-      </p>
-      <div style={{ ...card, width: "100%", padding: 14, marginTop: 22, fontSize: 13.5, color: "var(--ink)" }}>
-        If you think this is a mistake, contact <a href={`mailto:${support}`} style={{ color: "var(--blue)", fontWeight: 600 }}>{support}</a>
-      </div>
-      <button onClick={onLogout} style={{ marginTop: 20, background: "none", border: "none", color: "var(--blue)", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Log out</button>
+    <div role="alert" style={{ margin: "12px 16px 0", padding: "12px 14px", borderRadius: 14, background: "color-mix(in srgb, var(--red) 10%, var(--surface))", border: "1px solid color-mix(in srgb, var(--red) 35%, transparent)", display: "flex", gap: 10, alignItems: "flex-start" }}>
+      <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: "50%", background: "var(--red)", display: "flex", alignItems: "center", justifyContent: "center", marginTop: 1 }}><XIcon s={12} c="white" w={3} /></span>
+      <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink)" }}>
+        <b style={{ display: "block", color: "var(--red)", fontSize: 14 }}>Your account is blocked</b>
+        You can view your account, but you can&apos;t book or take rides or change your profile. Contact <a href={`mailto:${support}`} style={{ color: "var(--blue)", fontWeight: 600 }}>{support}</a> for help.
+      </span>
     </div>
   );
 }

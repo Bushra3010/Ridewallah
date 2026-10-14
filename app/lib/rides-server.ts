@@ -33,18 +33,20 @@ async function userId(token: string) {
   return data.user.id;
 }
 
-export async function customerFor(token: string) {
+/** `readOnly` lets a blocked customer through — for viewing their own history, never for changes. */
+export async function customerFor(token: string, { readOnly = false } = {}) {
   const { data } = await db.from("customers").select("*").eq("user_id", await userId(token)).maybeSingle();
   if (!data) throw new Error("Finish setting up your profile first");
-  if (data.blocked) throw new Error("Your account is blocked");
+  if (data.blocked && !readOnly) throw new Error("Your account is blocked");
   return data;
 }
 
-export async function riderFor(token: string) {
+/** `readOnly` lets a suspended rider through — for viewing their own activity, never for changes. */
+export async function riderFor(token: string, { readOnly = false } = {}) {
   const { data } = await db.from("drivers").select("*").eq("user_id", await userId(token)).maybeSingle();
   if (!data) throw new Error("Rider profile not found");
   if (data.kyc !== "Approved") throw new Error("Your rider account isn't approved yet");
-  if (data.suspended) throw new Error("Your rider account is suspended");
+  if (data.suspended && !readOnly) throw new Error("Your rider account is blocked");
   return data;
 }
 
@@ -440,14 +442,14 @@ export async function releaseCustomer(customerId: string) {
 /* ───────── Histories (B13: names come from the server, not from reading each other's profiles) ───────── */
 
 export async function historyForCustomer(token: string) {
-  const me = await customerFor(token);
+  const me = await customerFor(token, { readOnly: true });
   const { data, error } = await db.from("rides").select(RIDE_SELECT).eq("customer_id", me.id).order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []).map(toRide);
 }
 
 export async function activityForRider(token: string) {
-  const me = await riderFor(token);
+  const me = await riderFor(token, { readOnly: true });
   const [trips, wallet, feedback] = await Promise.all([
     db.from("rides").select(RIDE_SELECT).eq("driver_id", me.id).order("created_at", { ascending: false }),
     db.from("wallet_txns").select("*").eq("driver_id", me.id).order("created_at", { ascending: false }),

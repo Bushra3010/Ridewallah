@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import BottomNav, { ChatGlyph, HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph } from "../components/BottomNav";
-import { AccountBlocked, EmailLogin, ForgotPassword, NewPassword, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
+import { BlockedBanner, EmailLogin, ForgotPassword, NewPassword, PermissionStep, ProfileSetup, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import HomeScreen from "../components/customer/HomeScreen";
 import { ChooseRidePage, ConfirmPage, LiveRidePage, ParcelPage, SearchPage, TripDonePage } from "../components/customer/BookingScreens";
 import {
@@ -29,7 +29,7 @@ import { accessToken, createCustomer, hasSession, isRiderLogin, loadCustomer, re
 const SHELL_MAX_W = 430;
 
 type Tab = "home" | "rides" | "offers" | "support" | "profile";
-type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "setup" | "perm" | "app" | "blocked";
+type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "setup" | "perm" | "app";
 
 type Detail =
   | { k: "search"; to?: Place; prefer?: VehicleKind; service?: Service }
@@ -48,8 +48,12 @@ type Detail =
 const NO_USER: Customer = { id: "", name: "", initials: "", phone: "", email: "", rides: 0, spent: 0, rating: 5, joined: "", complaints: 0 };
 
 const SUPPORT_EMAIL = "support@ridewallah.in";
-/** How often an open app re-checks whether an admin has blocked the account. */
+/** Shown when a blocked customer tries to book or change something. */
+const BLOCKED = "Your account is blocked — you can't book rides or change your profile";
+/** How often an open app re-checks whether an admin has blocked (or unblocked) the account. */
 const BLOCK_POLL_MS = 15000;
+/** Pages a blocked customer can't stay on. */
+const LOCKED_PAGES: Detail["k"][] = ["search", "choose", "parcel", "confirm", "edit"];
 const RIDER_LOGIN = "This is a rider account. Riders use the Rider app at /rider.";
 
 /** The AC / Non-AC choice on the home screen is remembered on this device. */
@@ -105,7 +109,6 @@ export default function CustomerApp() {
         if (await isRiderLogin()) { await signOut(); setStage("login"); return RIDER_LOGIN; }
         const d = await signUpDetails(); setSetupInitial({ name: d.name, phone: d.phone }); setStage("setup"); return null;
       }
-      if (c.blocked) { setUser(c); setStack([]); setActive(null); setStage("blocked"); return null; }
       setUser(c);
       setRides(await fetchRides());
       await resumeRide();
@@ -135,12 +138,15 @@ export default function CustomerApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
-  // Blocked by an admin while the app is open → lock it straight away.
+  // Blocked (or unblocked) by an admin while the app is open → lock or unlock it straight away.
   useEffect(() => {
     if (stage !== "app" && stage !== "perm") return;
     const t = setInterval(async () => {
       const c = await loadCustomer().catch(() => null);
-      if (c?.blocked) { setUser(c); setStack([]); setActive(null); setStage("blocked"); }
+      if (!c) return;
+      setUser(c);
+      // Close any booking or profile-edit page that was open when the block landed.
+      if (c.blocked) setStack((s) => (s.some((d) => LOCKED_PAGES.includes(d.k)) ? [] : s));
     }, BLOCK_POLL_MS);
     return () => clearInterval(t);
   }, [stage]);
@@ -233,6 +239,7 @@ export default function CustomerApp() {
   };
 
   const startBooking = (to?: Place, prefer?: VehicleKind, service: Service = "ride") => {
+    if (user.blocked) { flash(BLOCKED); return; }
     if (active) { push({ k: "live" }); flash(`You already have a ${active.service === "parcel" ? "delivery" : "ride"} in progress`); return; }
     if (settings.maintenance) { flash("Bookings are paused for maintenance — please try again shortly"); return; }
     push({ k: "search", to, prefer, service });
@@ -240,6 +247,7 @@ export default function CustomerApp() {
 
   /** Saves the booking on the server, which prices it, and offers it to an available rider. */
   const confirmRide = async (b: Booking) => {
+    if (user.blocked) { flash(BLOCKED); return; }
     const token = await accessToken();
     const { data, error } = token ? await bookRide(token, {
       service: b.service, vehicle: b.vehicle, ac: b.ac, pay: b.pay,
@@ -339,7 +347,6 @@ export default function CustomerApp() {
           }} />
         )}
         {stage === "perm" && <PermissionStep onDone={() => setStage("app")} />}
-        {stage === "blocked" && <AccountBlocked name={user.name} support={SUPPORT_EMAIL} onLogout={logout} />}
 
         {stage === "app" && (chatFull ? (
           <div style={{ flex: 1, minHeight: 0, paddingBottom: showNav ? "calc(76px + env(safe-area-inset-bottom))" : undefined }}>
@@ -399,6 +406,7 @@ export default function CustomerApp() {
             )}
 
             {/* ── Tabs ── */}
+            {!detail && user.blocked && <BlockedBanner support={SUPPORT_EMAIL} />}
             {!detail && tab === "home" && settings.maintenance && (
               <div role="status" style={{ margin: "12px 16px 0", padding: "10px 14px", borderRadius: 14, background: "var(--gold-tint)", color: "var(--gold-dark)", fontSize: 13, fontWeight: 600 }}>
                 🛠 Ridewallah is under maintenance — new bookings are paused for a little while.
@@ -419,16 +427,16 @@ export default function CustomerApp() {
             )}
             {!detail && tab === "rides" && <RidesScreen rides={rides} onOpen={(r) => push({ k: "ride", id: r.id })} onBook={() => startBooking()} />}
             {!detail && tab === "offers" && (
-              <OffersScreen onUse={(code) => { setPendingCoupon(code); flash(`${code} will be applied to your next ride`); startBooking(); }} />
+              <OffersScreen onUse={(code) => { if (user.blocked) { flash(BLOCKED); return; } setPendingCoupon(code); flash(`${code} will be applied to your next ride`); startBooking(); }} />
             )}
             {!detail && tab === "profile" && (
               <ProfileScreen
                 user={user}
                 stats={{ rides: rides.filter((r) => r.status === "Completed").length, saved: 2, coupons: activeCoupons.length }}
-                onEdit={() => push({ k: "edit" })}
+                onEdit={() => (user.blocked ? flash(BLOCKED) : push({ k: "edit" }))}
                 onMenu={(key) => push(key === "rides" ? { k: "rides" } : key === "help" ? { k: "chat" } : { k: "info", key })}
                 onLogout={logout}
-                onDelete={() => flash("Deletion request sent — we'll confirm by SMS within 48 hours")}
+                onDelete={() => flash(user.blocked ? BLOCKED : "Deletion request sent — we'll confirm by SMS within 48 hours")}
               />
             )}
           </div>

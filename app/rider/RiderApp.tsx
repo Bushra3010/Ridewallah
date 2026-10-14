@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import BottomNav, { HomeGlyph, OffersGlyph, ProfileGlyph, RidesGlyph, WalletGlyph } from "../components/BottomNav";
-import { AccountBlocked, EmailLogin, ForgotPassword, NewPassword, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
+import { BlockedBanner, EmailLogin, ForgotPassword, NewPassword, SignUpForm, SplashLink, SplashScreen } from "../components/Auth";
 import { KycFlow, PendingApproval } from "../components/rider/Kyc";
 import {
   AlertsScreen, EarningsScreen, RequestPopup, RiderAccount, RiderHome, TripPage, TripsScreen,
@@ -26,11 +26,11 @@ const SHELL_MAX_W = 430;
 const POLL_MS = 3000;
 /** How often the "verification in progress" screen re-checks for admin approval. */
 const APPROVAL_POLL_MS = 8000;
-/** How often an open app re-checks whether an admin has suspended the account. */
+/** How often an open app re-checks whether an admin has blocked (or unblocked) the account. */
 const BLOCK_POLL_MS = 15000;
 
 type Tab = "home" | "earnings" | "trips" | "incentives" | "account";
-type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "kyc" | "pending" | "app" | "blocked";
+type Stage = "splash" | "login" | "forgot" | "reset" | "signup" | "kyc" | "pending" | "app";
 type Detail =
   | { k: "alerts" } | { k: "support" } | { k: "trip"; id: string }
   | { k: "wallet" } | { k: "performance" } | { k: "hotspots" }
@@ -41,6 +41,10 @@ type Detail =
 const NO_RIDER: Driver = { id: "", name: "", initials: "", phone: "", rating: 0, trips: 0, vehicle: "bike", model: "", plate: "", city: "", kyc: "Pending", online: false, joined: "", earnings: 0 };
 
 const SUPPORT_EMAIL = "support@ridewallah.in";
+/** Shown when a blocked rider tries to take rides or change something. */
+const BLOCKED = "Your account is blocked — you can't take rides or change your profile";
+/** Pages a blocked rider can't use: they change the account. */
+const LOCKED: Detail["k"][] = ["editProfile", "documents", "bank", "preferences"];
 
 let txSeq = 400;
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
@@ -79,9 +83,10 @@ export default function RiderApp() {
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  /** Suspended by an admin → only the blocked screen and Log out are left. */
+  /** Blocked by an admin → offline, no requests or trip, and off any page that changes the account. */
   const lockOut = useCallback(() => {
-    setOnline(false); setRequest(null); setTrip(null); setSheet(null); setStack([]); setTab("home"); setStage("blocked");
+    setOnline(false); setRequest(null); setTrip(null); setSheet(null);
+    setStack((s) => (s.some((d) => LOCKED.includes(d.k)) ? [] : s));
   }, []);
 
   /** Signed in → route by KYC status and load the rider's own activity. Returns an error message, or null. */
@@ -90,14 +95,14 @@ export default function RiderApp() {
       const d = await loadRider();
       if (!d) { setSignup(await signUpDetails()); setStage("kyc"); return null; }
       setRider(d);
-      if (d.suspended) { lockOut(); return null; }
       if (d.kyc !== "Approved") { setStage("pending"); return null; }
+      if (d.suspended) lockOut();
       const token = await accessToken();
       const res = token ? await myActivity(token) : { data: undefined, error: "Please log in again" };
       if (!res.data) throw new Error(res.error ?? "Couldn't load your trips");
       const a = res.data;
       setTrips(a.trips); setTxns(a.wallet); setFeedback(a.feedback);
-      setOnline(d.online);
+      setOnline(d.online && !d.suspended);
       setStage("app");
       return null;
     } catch (e) {
@@ -130,7 +135,6 @@ export default function RiderApp() {
     const t = setInterval(async () => {
       const d = await loadRider().catch(() => null);
       if (!d) return;
-      if (d.suspended) { setRider(d); lockOut(); return; }
       if (d.kyc === "Approved") { await enter(); flash("You're approved! Go online to start earning 🎉"); }
       else setRider(d);
     }, APPROVAL_POLL_MS);
@@ -138,12 +142,14 @@ export default function RiderApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flash is recreated each render
   }, [stage, enter]);
 
-  // Suspended by an admin while the app is open → lock it straight away.
+  // Blocked (or unblocked) by an admin while the app is open → lock or unlock it straight away.
   useEffect(() => {
     if (stage !== "app") return;
     const t = setInterval(async () => {
       const d = await loadRider().catch(() => null);
-      if (d?.suspended) { setRider(d); lockOut(); }
+      if (!d) return;
+      setRider(d);
+      if (d.suspended) lockOut();
     }, BLOCK_POLL_MS);
     return () => clearInterval(t);
   }, [stage, lockOut]);
@@ -226,6 +232,7 @@ export default function RiderApp() {
 
   const accept = useCallback(async () => {
     if (!request) return;
+    if (rider.suspended) { setRequest(null); flash(BLOCKED); return; }
     const token = await accessToken();
     const { data, error } = token ? await acceptRide(token, request.id) : { data: undefined, error: "Please log in again" };
     if (!data) { setRequest(null); flash(error ?? "This request is no longer available"); return; }
@@ -234,7 +241,7 @@ export default function RiderApp() {
     setStack([]);
     setStats((s) => ({ ...s, accepted: s.accepted + 1 }));
     setAlerts((a) => [["Ride Accepted", `${request.from} → ${request.to} · ${inr(request.fare)}`, "just now", "ride"], ...a]);
-  }, [request, flash]);
+  }, [request, flash, rider.suspended]);
 
   /** Saves the trip's next step on the server, then updates the screen. */
   const step = async (to: "Arrived" | "Started" | "Completed", opts: { otp?: string }, then: (serverWaitFee: number) => void) => {
@@ -298,6 +305,7 @@ export default function RiderApp() {
   };
 
   const withdraw = () => {
+    if (rider.suspended) { flash(BLOCKED); return; }
     const payable = wallet.balance - wallet.dues;
     if (wallet.dues > 0) addTxn("Dues Paid", "Adjusted from wallet", -wallet.dues);
     addTxn("Payout", "Instant payout · HDFC ••4521 (₹5 fee)", -payable);
@@ -306,6 +314,7 @@ export default function RiderApp() {
   };
 
   const payDues = () => {
+    if (rider.suspended) { flash(BLOCKED); return; }
     addTxn("Dues Paid", "Paid via UPI", -wallet.dues);
     setWallet((w) => ({ ...w, dues: 0 }));
     flash("Cash dues cleared — thank you!");
@@ -326,6 +335,7 @@ export default function RiderApp() {
   };
 
   const toggleOnline = async (v: boolean) => {
+    if (v && rider.suspended) { flash(BLOCKED); return; }
     setOnline(v);
     if (!v) setRequest(null);
     const err = await setRiderOnline(rider.id, v);
@@ -338,7 +348,10 @@ export default function RiderApp() {
     else push({ k });
   };
 
-  const openAccount = (k: AccountKey) => push(k === "help" ? { k: "support" } : { k });
+  const openAccount = (k: AccountKey) => {
+    if (rider.suspended && LOCKED.includes(k as Detail["k"])) { flash(BLOCKED); return; }
+    push(k === "help" ? { k: "support" } : { k });
+  };
 
   const logout = async () => {
     if (online) await setRiderOnline(rider.id, false);
@@ -392,7 +405,6 @@ export default function RiderApp() {
             }
           }} />
         )}
-        {stage === "blocked" && <AccountBlocked name={rider.name} support={SUPPORT_EMAIL} onLogout={logout} />}
         {stage === "pending" && <PendingApproval name={rider.name} rejected={rider.kyc === "Rejected"} onLogout={logout} />}
 
         {stage === "app" && (detail?.k === "support" ? (
@@ -453,6 +465,7 @@ export default function RiderApp() {
               </>
             ) : (
               <>
+                {rider.suspended && <BlockedBanner support={SUPPORT_EMAIL} />}
                 {tab === "home" && (
                   <>
                     <RiderHome rider={rider} online={online} today={today} unread={unread} wallet={wallet.balance} goHome={prefs.goHome}
@@ -464,7 +477,7 @@ export default function RiderApp() {
                 {tab === "earnings" && <EarningsScreen today={today} />}
                 {tab === "trips" && <TripsScreen trips={trips} onOpen={(r) => push({ k: "trip", id: r.id })} />}
                 {tab === "incentives" && <IncentivesScreen progress={{ today: today.trips, week, peak }} />}
-                {tab === "account" && <RiderAccount rider={rider} stats={{ acceptance, cancellation }} onEdit={() => push({ k: "editProfile" })} onMenu={openAccount} onLogout={logout} />}
+                {tab === "account" && <RiderAccount rider={rider} stats={{ acceptance, cancellation }} onEdit={() => (rider.suspended ? flash(BLOCKED) : push({ k: "editProfile" }))} onMenu={openAccount} onLogout={logout} />}
               </>
             )}
           </div>
